@@ -16,6 +16,8 @@ import {
   MAX_DETAIL_STRING,
   MAX_DETAIL_TOTAL,
   formatErrorDetail,
+  looksInternal,
+  redactSecrets,
   safeErrorDetail,
 } from "../safe-error.js";
 import { handleToken, safeOAuthErrorCode } from "../auth/routes.js";
@@ -89,9 +91,39 @@ describe("safeErrorDetail", () => {
     expect(JSON.stringify(detail)).not.toContain("INTERNAL-STACK-TRACE");
   });
 
-  it.each([401, 404, 409, 429, 500, 502])("gives no detail for a %i", (status) => {
-    const body = JSON.stringify({ code: "Whatever", message: SECRET_BODY_TEXT });
+  it.each([404, 409, 422])("keeps code, message and errors of a %i", (status) => {
+    const body = JSON.stringify({
+      code: "Whatever",
+      message: "something is wrong",
+      errors: [{ code: "c", message: "m", resource: "r", field: "f" }],
+    });
+    expect(safeErrorDetail(status, body)).toEqual({
+      code: "Whatever",
+      message: "something is wrong",
+      errors: [{ code: "c", message: "m", resource: "r", field: "f" }],
+    });
+  });
+
+  it.each([100, 200, 302, 500, 502, 503])("gives no detail for a %i", (status) => {
+    const body = JSON.stringify({
+      code: "Whatever",
+      message: "validation failed",
+      errors: [{ field: "summary", message: "summary is required" }],
+    });
     expect(safeErrorDetail(status, body)).toBeUndefined();
+  });
+
+  it.each([500, 502, 503])("ends the CwApiError message at the reference for a %i", (status) => {
+    const body = JSON.stringify({ code: "InvalidObject", errors: [{ field: "summary", message: "required" }] });
+    const error = new CwApiError("POST", "/service/tickets", status, body);
+    expect(error.detail).toBeUndefined();
+    expect(error.message).toMatch(/\(reference [0-9a-f-]{36}\)$/);
+  });
+
+  it("uses an ASP.NET-style Message when there is no lowercase message", () => {
+    expect(safeErrorDetail(400, JSON.stringify({ Message: "The request is invalid." }))).toEqual({
+      message: "The request is invalid.",
+    });
   });
 
   it("keeps code and message of a 403, so the missing permission is named", () => {
@@ -102,7 +134,7 @@ describe("safeErrorDetail", () => {
     });
   });
 
-  it("takes nothing else from a 403 body, not even the per-field errors a 400 keeps", () => {
+  it("keeps the per-field errors of a 403 too, and nothing else", () => {
     const body = JSON.stringify({
       code: "Forbidden",
       message: "no access",
@@ -113,8 +145,163 @@ describe("safeErrorDetail", () => {
 
     const detail = safeErrorDetail(403, body);
 
-    expect(detail).toEqual({ code: "Forbidden", message: "no access" });
+    expect(detail).toEqual({
+      code: "Forbidden",
+      message: "no access",
+      errors: [{ code: "x", message: "y", resource: "invoice", field: "status" }],
+    });
     expect(JSON.stringify(detail)).not.toContain("INTERNAL-STACK-TRACE");
+  });
+
+  describe("internal diagnostic detail", () => {
+    it.each([
+      "   at Foo.Bar(String x)",
+      "at Server.Handler line 42",
+      "Foo.cs:line 12",
+      "failed at app/file.js:10:5",
+      "A Stack Trace follows",
+      "INTERNAL-STACK-TRACE",
+      "System.NullReferenceException",
+      "InvalidOperationException: boom",
+      "<html><body>oops</body></html>",
+      "<!DOCTYPE html>",
+      "<body>",
+    ])("recognises %j", (text) => {
+      expect(looksInternal(text)).toBe(true);
+      expect(safeErrorDetail(400, JSON.stringify({ message: text }))).toBeUndefined();
+    });
+
+    it("leaves ordinary messages alone", () => {
+      for (const text of ["summary is required", "Look at the board line items", "Exception handling is off"]) {
+        expect(looksInternal(text)).toBe(false);
+      }
+    });
+
+    it("drops only the offending field and keeps the rest", () => {
+      const body = JSON.stringify({
+        code: "InvalidObject",
+        message: "at X.Y line 42",
+        errors: [{ field: "summary", message: "summary is required" }, { message: "System.NullReferenceException" }],
+      });
+      expect(safeErrorDetail(400, body)).toEqual({
+        code: "InvalidObject",
+        errors: [{ field: "summary", message: "summary is required" }],
+      });
+    });
+  });
+
+  describe("redaction", () => {
+    const BASIC = `Basic ${Buffer.from("acme+pub:priv").toString("base64")}`;
+    const JWT = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.c2lnbmF0dXJlMTIz";
+    const LONG = "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8s9T0";
+
+    it.each([
+      ["Basic credentials", BASIC, BASIC.slice(6)],
+      ["Bearer credentials", "Bearer abcDEF123456xyz", "abcDEF123456xyz"],
+      ["a JWT", `token was ${JWT}`, JWT],
+      ["a password pair", "password=hunter2", "hunter2"],
+      ["an api key pair", "apiKey: abc123def456", "abc123def456"],
+      ["an Authorization header", `Authorization: ${BASIC}`, BASIC.slice(6)],
+      ["a clientId pair", "clientId=11111111-aaaa", "11111111-aaaa"],
+      ["a 40-character token", `value ${LONG} end`, LONG],
+    ])("redacts %s", (_label, input, secret) => {
+      const detail = safeErrorDetail(400, JSON.stringify({ message: input, errors: [{ message: input }] }));
+      expect(detail?.message).toContain("[redacted]");
+      expect(detail?.errors?.[0].message).toContain("[redacted]");
+      expect(JSON.stringify(detail)).not.toContain(secret);
+      expect(redactSecrets(input)).not.toContain(secret);
+    });
+
+    it("leaves normal text alone", () => {
+      const text = "communicationItems is required";
+      expect(redactSecrets(text)).toBe(text);
+      expect(redactSecrets("Basic information is missing")).toBe("Basic information is missing");
+      expect(safeErrorDetail(400, JSON.stringify({ message: text }))?.message).toBe(text);
+    });
+
+    it("redacts before the length cap", () => {
+      const detail = safeErrorDetail(400, JSON.stringify({ message: `${"x ".repeat(95)}${LONG}` }));
+      expect(detail?.message).toBe(`${"x ".repeat(95)}[redacted]`);
+    });
+
+    it("redacts JSON-style pairs with a closing quote before the separator", () => {
+      const key = redactSecrets('{"privateKey":"Ab12Cd34Ef56Gh78"}');
+      expect(key).not.toContain("Ab12Cd34Ef56Gh78");
+      expect(key).toContain("[redacted]");
+      const header = redactSecrets('{"authorization": "Secret-value-123"}');
+      expect(header).not.toContain("Secret-value-123");
+      expect(header).toContain("[redacted]");
+    });
+
+    it("redacts a Cookie header through its semicolons", () => {
+      expect(redactSecrets("Cookie: a=1; session=AbC123xyz789")).not.toContain("AbC123xyz789");
+    });
+
+    it("redacts a Set-Cookie header through its attributes", () => {
+      expect(redactSecrets("Set-Cookie: sid=xyz12345; Path=/; HttpOnly")).not.toContain("xyz12345");
+    });
+
+    it("redacts a JSON-quoted cookie value containing a semicolon", () => {
+      expect(redactSecrets('"cookie": "a=1; b=secret99"')).not.toContain("secret99");
+    });
+
+    it("redacts a secret key after a long run without backtracking", () => {
+      const out = redactSecrets(`${"a".repeat(20000)}password=x1`);
+      expect(out).not.toContain("x1");
+      expect(out).toContain("[redacted]");
+    });
+
+    it("redacts a key with a suffix after the secret keyword", () => {
+      const out = redactSecrets("apiKeyValue: AbCdEfGhIjKlMnOpQrStUvWxYzAbCdEf");
+      expect(out).not.toContain("AbCdEfGh");
+      expect(out).toContain("[redacted]");
+    });
+
+    it("leaves a non-secret pair alone", () => {
+      expect(redactSecrets("field: communicationItems")).toBe("field: communicationItems");
+    });
+
+    it("keeps leading hyphens when redacting a flag-style pair", () => {
+      expect(redactSecrets("--token=abc123")).toBe("--[redacted]");
+    });
+
+    it("redacts a secret pair nested in the value of a non-secret pair", () => {
+      expect(redactSecrets("field=token=abc123")).not.toContain("abc123");
+    });
+
+    it("redacts a secret pair nested in a quoted value", () => {
+      expect(redactSecrets('detail: "password=hunter2"')).not.toContain("hunter2");
+    });
+
+    it("redacts a double-quoted secret value that holds an escaped quote", () => {
+      const out = redactSecrets('password="ab\\"cd123" next');
+      expect(out).not.toContain("cd123");
+      expect(out).toContain("next");
+    });
+
+    it("redacts a single-quoted secret value that holds an escaped quote", () => {
+      const out = redactSecrets("password='ab\\'cd123' next");
+      expect(out).not.toContain("cd123");
+      expect(out).toContain("next");
+    });
+
+    it("redacts an unterminated quoted secret value to the end", () => {
+      expect(redactSecrets('password="abc123 def456')).not.toContain("def456");
+    });
+
+    it("handles thousands of nested pairs without throwing", () => {
+      const text = `${"a=".repeat(5000)}token=abc123`;
+      let out = "";
+      expect(() => {
+        out = redactSecrets(text);
+      }).not.toThrow();
+      expect(out).not.toContain("abc123");
+    });
+
+    it("returns a long hyphen-only run unchanged", () => {
+      const run = "-".repeat(20000);
+      expect(redactSecrets(run)).toBe(run);
+    });
   });
 
   it("cleans and caps the code and message of a 403 at 200 characters each", () => {
@@ -266,6 +453,23 @@ describe("CwManageClient on a failed response", () => {
     expect(error.message).toContain('"field":"summary"');
     expect(error.message).not.toContain("INTERNAL-STACK-TRACE");
     expect(logged()).not.toContain("summary is required");
+  });
+
+  it("names the refused field on a PATCH of a contact, and keeps it out of the log", async () => {
+    const body = JSON.stringify({
+      code: "InvalidObject",
+      errors: [{ code: "InvalidValue", message: "title is too long", field: "title" }],
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(body, 400)));
+
+    const error = (await client()
+      .patch("/company/contacts/42", [{ op: "replace", path: "title", value: "x" }])
+      .catch((err: unknown) => err)) as CwApiError;
+
+    expect(error.message).toContain('"field":"title"');
+    expect(error.message).toContain("title is too long");
+    expect(logged()).not.toContain("title is too long");
+    expect(logged()).not.toContain("InvalidValue");
   });
 
   it("names the missing permission on a 403, and keeps the rest of the body out", async () => {
