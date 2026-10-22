@@ -69,7 +69,14 @@ services:
     depends_on:
       presidio-analyzer:
         condition: service_healthy
-    # The image's own HEALTHCHECK (wget /health) is used by depends_on above.
+    # Overrides the image's check, which uses `localhost`. In the container
+    # that resolves to ::1 first, and the server listens on IPv4 only.
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
   presidio-analyzer:
     # Tag 2.2.364 verified on ghcr.io 2026-10-22. First start can take a minute
@@ -84,7 +91,7 @@ services:
         - "CMD"
         - "python"
         - "-c"
-        - "import urllib.request; urllib.request.urlopen('http://localhost:3000/health', timeout=5)"
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3000/health', timeout=5)"
       interval: 30s
       timeout: 10s
       retries: 5
