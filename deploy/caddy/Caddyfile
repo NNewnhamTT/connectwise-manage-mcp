@@ -1,0 +1,22 @@
+# HTTPS for the CW Manage MCP stack. MCP_HOSTNAME and CF_API_TOKEN come from
+# the environment (docker-compose.stack.yml, profile "https").
+#
+# CF_API_TOKEN: a Cloudflare API token with Zone.Zone:Read and Zone.DNS:Edit on
+# the zone that holds MCP_HOSTNAME. Nothing else. Never commit it.
+{$MCP_HOSTNAME} {
+	tls {
+		dns cloudflare {env.CF_API_TOKEN}
+	}
+
+	# flush_interval -1: send streamed MCP responses at once, do not buffer them.
+	reverse_proxy signing-proxy:8081 {
+		flush_interval -1
+	}
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+}

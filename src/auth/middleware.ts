@@ -1,5 +1,6 @@
 import { createRemoteJWKSet, jwtVerify, type JWTPayload, type RemoteJWKSetOptions } from "jose";
 import { AuthError, type EntraConfig, type EntraIdentity } from "./types.js";
+import { ENTRA_ROLE_ADMIN, ENTRA_ROLE_WRITE } from "../guard/identity.js";
 
 // ---------------------------------------------------------------------------
 // Config
@@ -94,8 +95,14 @@ export async function validateToken(
       }
 
       // Validate app role
+      // CWM.Write and CWM.Admin imply access, so a person needs only one role
+      // assigned (the required role, or one of the two that raise access).
       const roles: string[] = payload.roles ?? [];
-      if (!roles.includes(config.requiredRole)) {
+      const hasAccess =
+        roles.includes(config.requiredRole) ||
+        roles.includes(ENTRA_ROLE_WRITE) ||
+        roles.includes(ENTRA_ROLE_ADMIN);
+      if (!hasAccess) {
         console.error(
           `[auth] Role check failed — token has roles: [${roles.join(", ")}], required: ${config.requiredRole}`,
         );

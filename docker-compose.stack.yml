@@ -12,7 +12,7 @@
 #                          authentication of its own.
 #
 # Claude connects to http://<host>:8081/mcp with
-#   Authorization: Bearer <PROXY_BEARER_TOKEN>
+#   Authorization: Bearer <that person's token from PROXY_USERS>
 name: cw-mcp-pii
 
 services:
@@ -27,7 +27,13 @@ services:
       - ./deploy/signing-proxy/proxy.mjs:/app/proxy.mjs:ro
     environment:
       - CONDUIT_S2S_SECRET=${CONDUIT_S2S_SECRET:?set CONDUIT_S2S_SECRET}
-      - PROXY_BEARER_TOKEN=${PROXY_BEARER_TOKEN:?set PROXY_BEARER_TOKEN}
+      # One entry per person: name:token[:role];name:token ... (see stack.env.example).
+      # The proxy refuses to start with neither PROXY_USERS nor PROXY_BEARER_TOKEN.
+      - PROXY_USERS=${PROXY_USERS:-}
+      - PROXY_BEARER_TOKEN=${PROXY_BEARER_TOKEN:-}
+      # tokens = per-person tokens above. entra = Microsoft Entra sign-in (also
+      # set MCP_OAUTH_ENABLED=true and the AZURE_* values below).
+      - PROXY_AUTH=${PROXY_AUTH:-tokens}
       - UPSTREAM_URL=http://connectwise-manage-mcp:8080
       - PORT=8081
     ports:
@@ -62,6 +68,21 @@ services:
       - PII_KEY=${PII_KEY:?set PII_KEY}
       - PII_PRESIDIO_URL=http://presidio-analyzer:3000
       - PII_PRESIDIO_TIMEOUT_MS=${PII_PRESIDIO_TIMEOUT_MS:-5000}
+      # One JSON audit line per tool call (who, tool, ids, outcome) on stderr:
+      # docker logs cw-manage-mcp
+      - MCP_AUDIT=on
+      # Default access for callers without a role. read = read tools only. A
+      # per-user role in PROXY_USERS overrides it (read | write | admin).
+      - MCP_POLICY=${MCP_POLICY:-read}
+      # Microsoft Entra sign-in. Off unless MCP_OAUTH_ENABLED=true. See
+      # entra-app-registration.md. MCP_SERVER_URL is the public https address
+      # people connect to (no trailing slash). The server advertises it.
+      - MCP_OAUTH_ENABLED=${MCP_OAUTH_ENABLED:-false}
+      - MCP_SERVER_URL=${MCP_SERVER_URL:-}
+      - AZURE_TENANT_ID=${AZURE_TENANT_ID:-}
+      - AZURE_CLIENT_ID=${AZURE_CLIENT_ID:-}
+      - AZURE_AUDIENCE=${AZURE_AUDIENCE:-}
+      - AZURE_REQUIRED_ROLE=${AZURE_REQUIRED_ROLE:-CWM.Access}
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - NODE_ENV=production
     expose:
@@ -77,6 +98,31 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+
+  # HTTPS in front of the proxy. Optional: start it with `--profile https`.
+  # Caddy gets its certificate by the DNS challenge through Cloudflare (it
+  # writes a TXT record with the API token), so no inbound port has to be open
+  # for the certificate. People still need a network path to this machine: the
+  # LAN or a VPN is enough for Claude Code. See README, "HTTPS and Entra sign-in".
+  caddy:
+    profiles: ["https"]
+    build:
+      context: ./deploy/caddy
+    image: cw-mcp-caddy:local
+    container_name: cw-caddy
+    restart: unless-stopped
+    environment:
+      - MCP_HOSTNAME=${MCP_HOSTNAME:-}
+      - CF_API_TOKEN=${CF_API_TOKEN:-}
+    ports:
+      # Loopback by default. Set HTTPS_BIND=0.0.0.0 for other machines.
+      - "${HTTPS_BIND:-127.0.0.1}:443:443"
+    volumes:
+      - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - signing-proxy
 
   presidio-analyzer:
     # Tag 2.2.364 verified on ghcr.io 2026-10-22. First start can take a minute
@@ -96,3 +142,7 @@ services:
       timeout: 10s
       retries: 5
       start_period: 90s
+
+volumes:
+  caddy-data:
+  caddy-config:

@@ -19,6 +19,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { getConfig, CwManageClient, type CwManageConfig } from "./api-client.js";
 import { registerCardResources } from "./resources.js";
 import { loadPiiConfig, createPiiContext, withPii } from "./pii/index.js";
+import { loadGuardConfig, withGuard } from "./guard/wrap-guard.js";
+import { ANONYMOUS, type Identity } from "./guard/identity.js";
 import { registerTicketTools } from "./tools/tickets.js";
 import { registerCompanyTools } from "./tools/companies.js";
 import { registerContactTools } from "./tools/contacts.js";
@@ -103,7 +105,10 @@ export function resolveGatewayConfig(
  * @param configOverride - Optional config (gateway mode / Workers headers).
  *   When provided, the client is built from it instead of reading process.env.
  */
-export function createMcpServer(configOverride?: CwManageConfig): McpServer {
+export function createMcpServer(
+  configOverride?: CwManageConfig,
+  options: { identity?: Identity } = {},
+): McpServer {
   const server = new McpServer(
     {
       name: "connectwise-manage-mcp",
@@ -121,6 +126,8 @@ export function createMcpServer(configOverride?: CwManageConfig): McpServer {
   // Throws on a bad PII_* setting, so a misconfigured server fails closed
   // instead of serving unmasked data.
   const piiConfig = loadPiiConfig();
+  // Same rule for MCP_AUDIT / MCP_POLICY: a bad value stops the server.
+  const guardConfig = loadGuardConfig();
 
   // MCP Apps (SEP-1865): the ui:// ticket card is static embedded HTML, so it
   // is served with or without credentials (hosts may prefetch it). It is
@@ -166,7 +173,14 @@ export function createMcpServer(configOverride?: CwManageConfig): McpServer {
 
   const client = new CwManageClient(config);
 
-  // Must run before any tool is registered: it wraps server.tool/registerTool.
+  // Both wrappers must run before any tool is registered: they wrap
+  // server.tool/registerTool. The one applied first ends up outermost, so the
+  // guard goes first. It then sees Claude's arguments with PII tokens (never
+  // real values), a denied call stops before any unmasking, and the audit line
+  // is written after masking.
+  if (guardConfig) {
+    withGuard(server, { identity: options.identity ?? ANONYMOUS, config: guardConfig });
+  }
   if (piiConfig) {
     withPii(server, createPiiContext(piiConfig, `${config.companyId}:${config.publicKey}`));
   }

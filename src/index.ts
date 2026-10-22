@@ -63,6 +63,12 @@ import {
   type CwManageConfig,
 } from "./mcp-server.js";
 import { verifyS2sHeader, S2S_HEADER } from "./s2s-verify.js";
+import {
+  ANONYMOUS,
+  identityFromEntra,
+  identityFromProxyHeaders,
+  type Identity,
+} from "./guard/identity.js";
 import { isValidHostHeader, parseRequestTarget } from "./request-target.js";
 
 /**
@@ -308,6 +314,18 @@ export async function startHttpTransport(): Promise<HttpServer> {
       // Entra ID auth check
       // ------------------------------------------------------------------
       const handleMcp = async () => {
+        // Who is calling, for the audit log and the access policy. The proxy's
+        // X-Mcp-* headers count only because X-Gateway-S2S verified above: only
+        // the proxy holds that secret. Without a secret (insecure dev) they are
+        // ignored. A validated Entra identity replaces them below.
+        let callerIdentity: Identity =
+          (s2sSecret
+            ? identityFromProxyHeaders(
+                headerValue(req.headers["x-mcp-user"]),
+                headerValue(req.headers["x-mcp-role"]),
+              )
+            : undefined) ?? ANONYMOUS;
+
         if (oauthEnabled && entraConfig) {
           const authHeader = req.headers.authorization;
 
@@ -343,8 +361,10 @@ export async function startHttpTransport(): Promise<HttpServer> {
                 roles: [entraConfig.requiredRole],
                 oid: "static",
               };
+              callerIdentity = { user: identity.upn, source: "static-token" };
             } else {
               identity = await validateToken(token, entraConfig, jwksClient!);
+              callerIdentity = identityFromEntra(identity.upn, identity.roles);
             }
             console.error(
               `[audit] ${identity.upn} | ${new Date().toISOString()} | POST /mcp`,
@@ -398,7 +418,7 @@ export async function startHttpTransport(): Promise<HttpServer> {
         // ------------------------------------------------------------------
         // MCP handler
         // ------------------------------------------------------------------
-        const server = createMcpServer(configOverride);
+        const server = createMcpServer(configOverride, { identity: callerIdentity });
         const transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: undefined,
           enableJsonResponse: true,

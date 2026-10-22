@@ -119,6 +119,42 @@ describe("validateToken", () => {
     expect(error.message).toContain("CWM.Access");
   });
 
+  describe("access through CWM.Write or CWM.Admin alone", () => {
+    const tokenWith = (roles: string[]) =>
+      ({
+        payload: {
+          tid: "test-tenant-id",
+          roles,
+          upn: "user@example.com",
+          oid: "test-oid",
+          aud: "api://test-client-id",
+          iss: `https://login.microsoftonline.com/test-tenant-id/v2.0`,
+          iat: Math.floor(Date.now() / 1000),
+          exp: Math.floor(Date.now() / 1000) + 3600,
+          nbf: Math.floor(Date.now() / 1000),
+          sub: "test-sub",
+        },
+        protectedHeader: { alg: "RS256" },
+        key: {} as unknown as MockJwtVerifyResult["key"],
+      }) as unknown as MockJwtVerifyResult;
+
+    it.each([["CWM.Write"], ["CWM.Admin"]])(
+      "accepts a token whose only role is %s, so one role per person is enough",
+      async (role) => {
+        vi.mocked(jwtVerify).mockResolvedValueOnce(tokenWith([role]));
+        const identity = await validateToken("valid-token", config, mockJwks);
+        expect(identity.roles).toEqual([role]);
+      },
+    );
+
+    it("still rejects a token with no CWM role", async () => {
+      vi.mocked(jwtVerify).mockResolvedValueOnce(tokenWith(["Reader", "CWM.Other"]));
+      const error = await validateToken("valid-token", config, mockJwks).catch((e) => e);
+      expect(error).toBeInstanceOf(AuthError);
+      expect((error as AuthError).statusCode).toBe(403);
+    });
+  });
+
   it("throws AuthError(401) when all audiences fail validation", async () => {
     vi.mocked(jwtVerify).mockRejectedValue(new Error("JWTClaimValidationFailed"));
 

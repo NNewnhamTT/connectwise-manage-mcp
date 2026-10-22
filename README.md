@@ -77,11 +77,11 @@ Hides person PII from the model. Node transports only (stdio and Node HTTP, not 
 
 #### One-stack Docker deployment (test)
 
-`docker-compose.stack.yml` runs everything as one stack: the MCP server, the Presidio analyzer, and a small signing proxy. The server's `/mcp` route requires a signed `X-Gateway-S2S` header that Claude clients cannot send. The proxy takes a plain bearer token from Claude, adds that header, and forwards the request. Only the proxy publishes a port.
+`docker-compose.stack.yml` runs everything as one stack: the MCP server, the Presidio analyzer, and a small signing proxy. The server's `/mcp` route requires a signed `X-Gateway-S2S` header that Claude clients cannot send. The proxy takes a per-user bearer token from Claude, adds that header plus the caller's name and access level, and forwards the request. Only the proxy publishes a port.
 
 ```bash
 git clone https://github.com/NNewnhamTT/connectwise-manage-mcp && cd connectwise-manage-mcp
-cp stack.env.example .env        # fill in CW_MANAGE_*, CONDUIT_S2S_SECRET, PROXY_BEARER_TOKEN, PII_KEY
+cp stack.env.example .env        # fill in CW_MANAGE_*, CONDUIT_S2S_SECRET, PROXY_USERS, PII_KEY
 docker compose -f docker-compose.stack.yml up -d --build
 docker compose -f docker-compose.stack.yml ps       # wait for all three to be healthy
 curl http://localhost:8081/health
@@ -90,10 +90,26 @@ curl http://localhost:8081/health
 Connect Claude Code (set `PROXY_BIND=0.0.0.0` in `.env` first if Claude runs on another machine):
 
 ```bash
-claude mcp add --transport http cw-pii http://<host>:8081/mcp --header "Authorization: Bearer <PROXY_BEARER_TOKEN>"
+claude mcp add --transport http cw-pii http://<host>:8081/mcp --header "Authorization: Bearer <your own token from PROXY_USERS>"
 ```
 
 The proxy speaks plain HTTP. Use a trusted network, a VPN or an SSH tunnel. Use a test tenant or a read-only API member while testing.
+
+#### Users, audit log and tool policy
+
+Three opt-in controls. The Docker stack turns them on. Without them the server behaves as upstream.
+
+- **Who is calling.** `PROXY_USERS` on the proxy lists one entry per person: `name:token[:role]`, separated by `;`. Each person sends their own token. The proxy sets `X-Mcp-User` and `X-Mcp-Role` itself and removes any `X-Mcp-*` header the client sent. The server trusts those headers only when `X-Gateway-S2S` verified, because only the proxy holds that secret. With Entra OAuth, the validated `upn` is the name, and the app roles `CWM.Write` and `CWM.Admin` set write and admin access.
+- **Audit log (`MCP_AUDIT=on`).** One JSON line per tool call on stderr (`docker logs cw-manage-mcp`): time, request id, user, role, tool, tool class, status (`ok`, `error`, `denied`), duration and response size. Arguments are summarized: numbers and booleans as they are, strings as a length only, plus any PII tokens found. It never holds a real name, a string value or a response body. Query it by user and tool, for example `docker logs cw-manage-mcp | grep '"user":"alice"'`.
+- **Access policy (`MCP_POLICY`).** `read` allows `cw_get_`, `cw_search_` and `cw_list_` tools plus `cw_test_connection`. `write` adds every other tool except delete. `admin` adds `cw_delete_*`. A tool whose name matches none of these patterns counts as write, so a tool added upstream later is blocked at `read` until classified. A person's role overrides the default in either direction. A blocked call returns an error, never reaches ConnectWise, and is logged as `denied`. The Docker stack defaults to `read`, so writes are off until you raise `MCP_POLICY` or give a person a role.
+
+All people share one ConnectWise API member, so ConnectWise's own audit trail still shows that one member as the actor. The server log is where the person is recorded.
+
+#### HTTPS and Entra sign-in (Docker stack)
+
+Instead of per-person tokens, people can sign in with Microsoft Entra ID. Set `PROXY_AUTH=entra` and `MCP_OAUTH_ENABLED=true` with the `AZURE_*` values. In this mode the proxy does no sign-in of its own. It passes the `Authorization` header through, forwards the five OAuth routes (`/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`, `/register`, `/authorize`, `/token`), and adds the S2S header. The server validates the Entra token and names the user from it. Entra app roles set access: `CWM.Access` read, `CWM.Write` read and write, `CWM.Admin` also delete. One role per person is enough.
+
+Sign-in needs an HTTPS address. `docker compose -f docker-compose.stack.yml --profile https up -d --build` adds Caddy with the Cloudflare DNS module, which gets its certificate through the DNS challenge, so no inbound port has to be open for the certificate. Portal steps, DNS and token setup, and troubleshooting are in `entra-setup-portal-steps.md`.
 
 Limits:
 - Claude cannot search for a real name or email it has never been shown. It can search with tokens it was given.
