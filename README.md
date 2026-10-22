@@ -75,6 +75,26 @@ Hides person PII from the model. Node transports only (stdio and Node HTTP, not 
 - **Tokens:** `HMAC-SHA256(PII_KEY, type + value)`, so the same value always gives the same token. The token-to-value map is in memory per API member, with a TTL (`PII_TTL_SECONDS`). It is lost on restart. Claude must fetch the record again to get usable tokens.
 - **Setup:** see `PII_*` in `.env.example`. For a Presidio sidecar, run `docker compose -f docker-compose.yml -f docker-compose.pii.yml up -d`. The analyzer has no authentication, so keep it on the private Compose network.
 
+#### One-stack Docker deployment (test)
+
+`docker-compose.stack.yml` runs everything as one stack: the MCP server, the Presidio analyzer, and a small signing proxy. The server's `/mcp` route requires a signed `X-Gateway-S2S` header that Claude clients cannot send. The proxy takes a plain bearer token from Claude, adds that header, and forwards the request. Only the proxy publishes a port.
+
+```bash
+git clone https://github.com/NNewnhamTT/connectwise-manage-mcp && cd connectwise-manage-mcp
+cp stack.env.example .env        # fill in CW_MANAGE_*, CONDUIT_S2S_SECRET, PROXY_BEARER_TOKEN, PII_KEY
+docker compose -f docker-compose.stack.yml up -d --build
+docker compose -f docker-compose.stack.yml ps       # wait for all three to be healthy
+curl http://localhost:8081/health
+```
+
+Connect Claude Code (set `PROXY_BIND=0.0.0.0` in `.env` first if Claude runs on another machine):
+
+```bash
+claude mcp add --transport http cw-pii http://<host>:8081/mcp --header "Authorization: Bearer <PROXY_BEARER_TOKEN>"
+```
+
+The proxy speaks plain HTTP. Use a trusted network, a VPN or an SSH tunnel. Use a test tenant or a read-only API member while testing.
+
 Limits:
 - Claude cannot search for a real name or email it has never been shown. It can search with tokens it was given.
 - Names in free text are found by an NLP model. Terse or lowercase text can be missed. Field-based masking is exact. Free-text masking is best effort.

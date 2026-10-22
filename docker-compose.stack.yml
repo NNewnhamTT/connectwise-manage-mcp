@@ -1,0 +1,91 @@
+# One-stack deployment of the ConnectWise Manage MCP with PII masking.
+# Standalone file: do not combine it with docker-compose.yml.
+#
+#   cp stack.env.example .env      # then fill it in
+#   docker compose -f docker-compose.stack.yml up -d --build
+#
+# Three containers on one private network:
+#   signing-proxy          the only published port. Checks a bearer token, adds
+#                          the X-Gateway-S2S header the MCP server requires.
+#   connectwise-manage-mcp the MCP server (PII_MODE=on). No published port.
+#   presidio-analyzer      name detection for free text. No published port, no
+#                          authentication of its own.
+#
+# Claude connects to http://<host>:8081/mcp with
+#   Authorization: Bearer <PROXY_BEARER_TOKEN>
+name: cw-mcp-pii
+
+services:
+  signing-proxy:
+    image: node:26-alpine
+    container_name: cw-signing-proxy
+    restart: unless-stopped
+    user: node
+    working_dir: /app
+    command: ["node", "/app/proxy.mjs"]
+    volumes:
+      - ./deploy/signing-proxy/proxy.mjs:/app/proxy.mjs:ro
+    environment:
+      - CONDUIT_S2S_SECRET=${CONDUIT_S2S_SECRET:?set CONDUIT_S2S_SECRET}
+      - PROXY_BEARER_TOKEN=${PROXY_BEARER_TOKEN:?set PROXY_BEARER_TOKEN}
+      - UPSTREAM_URL=http://connectwise-manage-mcp:8080
+      - PORT=8081
+    ports:
+      # Loopback by default. Set PROXY_BIND=0.0.0.0 to reach it from another
+      # machine. The port speaks plain HTTP, so use a trusted network, a VPN or
+      # an SSH tunnel, not the open internet.
+      - "${PROXY_BIND:-127.0.0.1}:${PROXY_PORT:-8081}:8081"
+    depends_on:
+      connectwise-manage-mcp:
+        condition: service_healthy
+
+  connectwise-manage-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    image: cw-manage-mcp-pii:local
+    container_name: cw-manage-mcp
+    restart: unless-stopped
+    environment:
+      - MCP_TRANSPORT=http
+      - MCP_HTTP_HOST=0.0.0.0
+      - MCP_HTTP_PORT=8080
+      - AUTH_MODE=env
+      - CONDUIT_S2S_SECRET=${CONDUIT_S2S_SECRET:?set CONDUIT_S2S_SECRET}
+      - CW_MANAGE_COMPANY_ID=${CW_MANAGE_COMPANY_ID:?set CW_MANAGE_COMPANY_ID}
+      - CW_MANAGE_PUBLIC_KEY=${CW_MANAGE_PUBLIC_KEY:?set CW_MANAGE_PUBLIC_KEY}
+      - CW_MANAGE_PRIVATE_KEY=${CW_MANAGE_PRIVATE_KEY:?set CW_MANAGE_PRIVATE_KEY}
+      - CW_MANAGE_CLIENT_ID=${CW_MANAGE_CLIENT_ID:?set CW_MANAGE_CLIENT_ID}
+      - CW_MANAGE_URL=${CW_MANAGE_URL:-https://api-na.myconnectwise.net}
+      - PII_MODE=on
+      - PII_KEY=${PII_KEY:?set PII_KEY}
+      - PII_PRESIDIO_URL=http://presidio-analyzer:3000
+      - PII_PRESIDIO_TIMEOUT_MS=${PII_PRESIDIO_TIMEOUT_MS:-5000}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - NODE_ENV=production
+    expose:
+      - "8080"
+    depends_on:
+      presidio-analyzer:
+        condition: service_healthy
+    # The image's own HEALTHCHECK (wget /health) is used by depends_on above.
+
+  presidio-analyzer:
+    # Tag 2.2.364 verified on ghcr.io 2026-10-22. First start can take a minute
+    # (spaCy model load). Expect about 1 to 2 GiB of memory (unverified).
+    image: ghcr.io/data-privacy-stack/presidio-analyzer:2.2.364
+    container_name: cw-presidio-analyzer
+    restart: unless-stopped
+    expose:
+      - "3000"
+    healthcheck:
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import urllib.request; urllib.request.urlopen('http://localhost:3000/health', timeout=5)"
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
