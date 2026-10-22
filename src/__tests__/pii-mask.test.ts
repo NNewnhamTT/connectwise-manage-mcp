@@ -119,6 +119,24 @@ describe("maskJson", () => {
     expect(masked.communicationItems[0]!.type.name).toBe("Email");
   });
 
+  it("masks any camelCase *By member field, such as respondedBy and resplanBy", async () => {
+    const record = {
+      id: 1,
+      respondedBy: "TBible",
+      resplanBy: "TBible",
+      resolvedBy: "TBible",
+      approvedBy: "jsmith",
+      status: { id: 1, name: "Standby" },
+    };
+    const masked = (await maskJson(record, makeCtx())) as typeof record;
+    const text = JSON.stringify(masked);
+    expect(text).not.toContain("TBible");
+    expect(text).not.toContain("jsmith");
+    expect(masked.respondedBy).toBe(masked.resplanBy);
+    expect(masked.respondedBy).toMatch(/^<PERSON_[0-9a-f]{10}>$/);
+    expect(masked.status.name).toBe("Standby");
+  });
+
   it("masks arrays of records", async () => {
     const masked = (await maskJson([ticket, ticket], makeCtx(janeAnalyzer))) as (typeof ticket)[];
     expect(masked).toHaveLength(2);

@@ -129,6 +129,9 @@ export function classify(
     return { mode: "field", type: "PERSON" };
   }
   if (PERSON_STRING_KEYS.has(lower)) return { mode: "field", type: "PERSON" };
+  // CW names the acting member in many fields (respondedBy, resplanBy,
+  // approvedBy, ...). Match the camelCase suffix instead of listing each one.
+  if (/[a-z]By$/.test(key)) return { mode: "field", type: "PERSON" };
 
   if (lower === "ipaddress" || lower === "ipv4address" || lower === "ipv6address") {
     return { mode: "field", type: "IP" };
