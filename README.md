@@ -65,6 +65,23 @@ In `AUTH_MODE=gateway`, `/mcp` also requires `X-CW-Company-Id`, `X-CW-Public-Key
 
 Entra OAuth discovery routes stay available when `MCP_OAUTH_ENABLED=true`. `POST /mcp` still requires a valid `X-Gateway-S2S` header when the secret is set.
 
+### PII masking (`PII_MODE=on`)
+
+Hides person PII from the model. Node transports only (stdio and Node HTTP, not the Worker).
+
+- **Out:** names, email addresses, phone numbers, street address lines, and IP/MAC addresses in a tool result become tokens such as `<PERSON_ab12cd34ef>`. Ids, company names, config names, statuses and dates stay readable.
+- **In:** tokens in a tool call's arguments (including `conditions` and JSON Patch values) are turned back into the real value before the call to ConnectWise. An unknown or expired token returns an error and nothing is sent.
+- **How:** field rules for known ConnectWise fields (`src/pii/field-rules.ts`), a pattern scan for email, phone, IPv4 and MAC in any string, and an optional [Presidio](https://github.com/data-privacy-stack/presidio) analyzer for names in free text (`summary`, notes, descriptions, custom field values). If the analyzer is configured and fails, free-text fields are replaced with `[REDACTED: PII analyzer unavailable]`. They are never passed through unmasked.
+- **Tokens:** `HMAC-SHA256(PII_KEY, type + value)`, so the same value always gives the same token. The token-to-value map is in memory per API member, with a TTL (`PII_TTL_SECONDS`). It is lost on restart. Claude must fetch the record again to get usable tokens.
+- **Setup:** see `PII_*` in `.env.example`. For a Presidio sidecar, run `docker compose -f docker-compose.yml -f docker-compose.pii.yml up -d`. The analyzer has no authentication, so keep it on the private Compose network.
+
+Limits:
+- Claude cannot search for a real name or email it has never been shown. It can search with tokens it was given.
+- Names in free text are found by an NLP model. Terse or lowercase text can be missed. Field-based masking is exact. Free-text masking is best effort.
+- The ticket card (MCP Apps) is turned off while masking is on, because it would show real values.
+- Anything written back to ConnectWise gets the real value. Claude can place a token in a note or field and the real text is stored.
+- One process holds the token map. Running more than one replica needs a shared store (not built yet).
+
 ### API Base URL (`CW_MANAGE_URL`)
 
 | Instance Type | URL |

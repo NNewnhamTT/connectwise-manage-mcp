@@ -1,0 +1,39 @@
+# PII masking overlay. Use it with the gateway-mode file:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.pii.yml up -d
+#
+# Adds a Presidio analyzer and turns on PII_MODE for the MCP server. Set
+# PII_KEY in the project .env (16 or more characters, for example
+# `openssl rand -hex 32`). Never commit it.
+#
+# The analyzer has no authentication, so it publishes no port. Only services
+# on this Compose network can reach it.
+services:
+  connectwise-manage-mcp:
+    environment:
+      - PII_MODE=on
+      - PII_KEY=${PII_KEY:?set PII_KEY}
+      - PII_PRESIDIO_URL=http://presidio-analyzer:3000
+    depends_on:
+      presidio-analyzer:
+        condition: service_healthy
+
+  presidio-analyzer:
+    # Tag 2.2.364 verified on ghcr.io 2026-10-22. The old mcr.microsoft.com
+    # images are no longer updated. First start downloads spaCy en_core_web_lg
+    # inside the image. Expect about 1 to 2 GiB of memory (unverified).
+    image: ghcr.io/data-privacy-stack/presidio-analyzer:2.2.364
+    container_name: presidio-analyzer
+    restart: unless-stopped
+    expose:
+      - "3000"
+    healthcheck:
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import urllib.request; urllib.request.urlopen('http://localhost:3000/health', timeout=5)"
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s

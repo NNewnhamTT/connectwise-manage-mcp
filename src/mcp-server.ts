@@ -18,6 +18,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { getConfig, CwManageClient, type CwManageConfig } from "./api-client.js";
 import { registerCardResources } from "./resources.js";
+import { loadPiiConfig, createPiiContext, withPii } from "./pii/index.js";
 import { registerTicketTools } from "./tools/tickets.js";
 import { registerCompanyTools } from "./tools/companies.js";
 import { registerContactTools } from "./tools/contacts.js";
@@ -117,9 +118,14 @@ export function createMcpServer(configOverride?: CwManageConfig): McpServer {
     }
   );
 
+  // Throws on a bad PII_* setting, so a misconfigured server fails closed
+  // instead of serving unmasked data.
+  const piiConfig = loadPiiConfig();
+
   // MCP Apps (SEP-1865): the ui:// ticket card is static embedded HTML, so it
-  // is served with or without credentials (hosts may prefetch it).
-  registerCardResources(server);
+  // is served with or without credentials (hosts may prefetch it). It is
+  // skipped when PII masking is on: the card would show real values.
+  if (!piiConfig) registerCardResources(server);
 
   const config = configOverride ?? getConfig();
 
@@ -159,6 +165,11 @@ export function createMcpServer(configOverride?: CwManageConfig): McpServer {
   }
 
   const client = new CwManageClient(config);
+
+  // Must run before any tool is registered: it wraps server.tool/registerTool.
+  if (piiConfig) {
+    withPii(server, createPiiContext(piiConfig, `${config.companyId}:${config.publicKey}`));
+  }
 
   registerTicketTools(server, client);
   registerCompanyTools(server, client);
