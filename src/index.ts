@@ -298,6 +298,23 @@ export async function startHttpTransport(): Promise<HttpServer> {
         return;
       }
 
+      // The signing proxy in entra mode checks nobody itself and relies on the
+      // Entra check below. If OAuth is off here, nothing would check anyone, so
+      // refuse. Trusted only because X-Gateway-S2S verified above.
+      if (!oauthEnabled && s2sSecret && headerValue(req.headers["x-mcp-auth"]) === "entra") {
+        console.error(
+          "[auth] The signing proxy is in entra mode (PROXY_AUTH=entra) but MCP_OAUTH_ENABLED is not 'true'. Refusing every /mcp request.",
+        );
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            error: "auth_misconfigured",
+            message: "The proxy expects Entra sign-in but MCP_OAUTH_ENABLED is not true on the server.",
+          }),
+        );
+        return;
+      }
+
       if (req.method !== "POST") {
         res.writeHead(405, { "Content-Type": "application/json" });
         res.end(

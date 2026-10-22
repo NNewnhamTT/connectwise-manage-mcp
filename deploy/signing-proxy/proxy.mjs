@@ -154,6 +154,10 @@ function forward(req, res, path, user, keepAuth = false) {
     headers[name] = value;
   }
   headers["x-gateway-s2s"] = s2sHeader();
+  // In entra mode this proxy checks nobody: the server's Entra check is the only
+  // gate. Say so, so the server can refuse to run if its OAuth is switched off
+  // (a mismatch that would otherwise leave /mcp open to anyone who can reach it).
+  if (entra) headers["x-mcp-auth"] = "entra";
   if (user) {
     headers["x-mcp-user"] = user.name;
     if (user.role) headers["x-mcp-role"] = user.role;

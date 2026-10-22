@@ -236,6 +236,15 @@ describe("entra mode (PROXY_AUTH=entra)", () => {
     expect(verifyS2sHeader(seen!.headers["x-gateway-s2s"] as string, S2S)).toBe(true);
     expect(seen!.headers["x-mcp-user"]).toBeUndefined();
     expect(seen!.headers["x-mcp-role"]).toBeUndefined();
+    // Tells the server this proxy relies on its Entra check, so the server can refuse if OAuth is off.
+    expect(seen!.headers["x-mcp-auth"]).toBe("entra");
+  });
+
+  it("sets x-mcp-auth only in entra mode, and never lets a client set it", async () => {
+    const up = await startUpstream();
+    const proxy = await startProxy({ CONDUIT_S2S_SECRET: S2S, PROXY_USERS: `alice:${ALICE}` }, up.port);
+    await send(proxy.port, { headers: { ...bearer(ALICE), "x-mcp-auth": "entra" } });
+    expect(up.seen[0]!.headers["x-mcp-auth"]).toBeUndefined();
   });
 
   it("forwards a request with no token so the server can answer 401 with its own WWW-Authenticate", async () => {

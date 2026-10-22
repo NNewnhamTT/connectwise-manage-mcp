@@ -141,5 +141,6 @@ It should show `"source":"entra"` and the person's sign-in name as `user`.
 | 403 "missing required role" | Token has no `CWM.Access`, `CWM.Write` or `CWM.Admin`. Assign a role, then sign out and in (`/mcp` > Authenticate). |
 | 401 "Invalid token", log shows `tokenAudience=...` | `AZURE_AUDIENCE` differs from the logged audience. Set it to exactly that value. |
 | Sign-in works, writes are blocked | Expected: the person has `CWM.Access` (read) or `MCP_POLICY=read`. Assign `CWM.Write`. |
+| 500 `auth_misconfigured`, log says `PROXY_AUTH=entra but MCP_OAUTH_ENABLED is not 'true'` | The proxy is in entra mode but the server has OAuth off. Set `MCP_OAUTH_ENABLED=true` (the server refuses to run unauthenticated). |
 | Role change not applied | The old token is still valid. Sign out and sign in again. |
 | Certificate not issued | `docker logs cw-caddy`. Check `CF_API_TOKEN` permissions and that the zone is in that Cloudflare account. |

@@ -145,6 +145,19 @@ describe("identity from the signing proxy", () => {
     expect(line).toMatchObject({ status: "denied", reason: "policy:read" });
   });
 
+  it("refuses when the proxy is in entra mode but the server has OAuth off, instead of serving without any sign-in", async () => {
+    vi.stubEnv("MCP_OAUTH_ENABLED", "");
+    const port = await listen();
+    const res = await post(port, { "x-gateway-s2s": s2s(), "x-mcp-auth": "entra" }, call("cw_get_contact", { id: 99 }));
+    expect(res.status).toBe(500);
+    expect(res.body).toContain("MCP_OAUTH_ENABLED");
+    expect(cwCalls).toHaveLength(0);
+    expect(audits()).toHaveLength(0);
+    // The check is on a header only the proxy can set (S2S must verify first).
+    const forged = await post(port, { "x-mcp-auth": "entra" }, call("cw_get_contact", { id: 99 }));
+    expect(forged.status).toBe(401);
+  });
+
   it("does not leak the S2S secret or CW keys into audit lines", async () => {
     const port = await listen();
     await post(port, { "x-gateway-s2s": s2s(), "x-mcp-user": "alice" }, call("cw_get_contact", { id: 99 }));
