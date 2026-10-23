@@ -6,6 +6,10 @@
 {$MCP_HOSTNAME} {
 	tls {
 		dns cloudflare {env.CF_API_TOKEN}
+		# Public resolvers for the DNS challenge. Added after a first run failed with
+		# 'expected 1 zone, got 0 for <host>': the zone was read from the machine's own
+		# (possibly internal) DNS. Needs outbound DNS (port 53) to these addresses.
+		resolvers 1.1.1.1 1.0.0.1
 	}
 
 	# flush_interval -1: send streamed MCP responses at once, do not buffer them.

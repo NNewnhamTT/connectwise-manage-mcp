@@ -44,7 +44,29 @@ On **Authentication** > **Advanced settings**, set **Allow public client flows**
 
 ## 4. Token version
 
-**Manifest**: next to `signInAudience`, set `"accessTokenAcceptedVersion": 2` (the number 2, not the string). **Save**, then reopen the manifest and check that it stuck.
+The server accepts only version 2 access tokens. A new app issues version 1 until you change this, and sign-in then fails with 401 "Invalid token".
+
+In the manifest (Microsoft Graph format, which the portal uses for work and school apps), find the `api` object and set `requestedAccessTokenVersion` to the number 2, not the string:
+
+```json
+"api": {
+    "requestedAccessTokenVersion": 2
+}
+```
+
+Keep the other properties already inside `api` (such as `oauth2PermissionScopes` from step 5). **Save**, then reopen the manifest and check that it stuck.
+
+`accessTokenAcceptedVersion` is the older Azure AD Graph name. It appears in older guides (including `entra-app-registration.md`). In the Graph-format manifest it is not a valid property, and a save with it can fail with "invalid property".
+
+If the manifest page will not save (for example "The application was not found"), set it from Azure Cloud Shell instead. Cloud Shell in the portal is already signed in as you:
+
+```bash
+az ad app list --display-name "<app name>" --query "[].{name:displayName,appId:appId,objectId:id}" -o table
+az ad app show --id <appId> --query "{audience:signInAudience,tokenVersion:api.requestedAccessTokenVersion,idUris:identifierUris}" -o json
+az ad app update --id <appId> --set api.requestedAccessTokenVersion=2
+```
+
+If the first command returns nothing, the portal is pointed at a different directory than the one holding the app (see Troubleshooting).
 
 ## 5. Expose an API
 
@@ -142,5 +164,7 @@ It should show `"source":"entra"` and the person's sign-in name as `user`.
 | 401 "Invalid token", log shows `tokenAudience=...` | `AZURE_AUDIENCE` differs from the logged audience. Set it to exactly that value. |
 | Sign-in works, writes are blocked | Expected: the person has `CWM.Access` (read) or `MCP_POLICY=read`. Assign `CWM.Write`. |
 | 500 `auth_misconfigured`, log says `PROXY_AUTH=entra but MCP_OAUTH_ENABLED is not 'true'` | The proxy is in entra mode but the server has OAuth off. Set `MCP_OAUTH_ENABLED=true` (the server refuses to run unauthenticated). |
+| Manifest save fails: "The application was not found" | No official cause found (2026-10-23). Check, in order: the directory selected at top right is the one that holds the app (Overview shows the Directory (tenant) ID); the app is under **App registrations** > **All applications**, not only "Owned"; **Deleted applications** (a deleted app can be restored for 30 days); open the portal in a private window and navigate in fresh, from **App registrations**, not from **Enterprise applications** (that is the service principal, a different object). If it still fails, use the Cloud Shell commands in step 4. |
+| 401 "Invalid token" on every sign-in | Token version is still 1: `api.requestedAccessTokenVersion` is not 2 (step 4). |
 | Role change not applied | The old token is still valid. Sign out and sign in again. |
 | Certificate not issued | `docker logs cw-caddy`. Check `CF_API_TOKEN` permissions and that the zone is in that Cloudflare account. |
