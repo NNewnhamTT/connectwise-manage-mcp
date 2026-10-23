@@ -24,6 +24,8 @@ export interface AuditEvent {
   args: Record<string, unknown>;
   tokens: string[];
   status: AuditStatus;
+  /** Which ConnectWise credentials the server uses: one shared key or one per person. */
+  credential?: "shared" | "per-user";
   /** Why a call was denied. A fixed phrase, never user data. */
   reason?: string;
   ms: number;
@@ -80,6 +82,7 @@ export function formatAuditLine(e: AuditEvent): string {
     args: e.args,
     tokens: e.tokens,
     status: e.status,
+    ...(e.credential ? { credential: e.credential } : {}),
     ...(e.reason ? { reason: e.reason } : {}),
     ms: e.ms,
     bytes: e.bytes,

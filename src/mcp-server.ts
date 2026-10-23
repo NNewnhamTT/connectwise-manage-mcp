@@ -20,6 +20,7 @@ import { getConfig, CwManageClient, type CwManageConfig } from "./api-client.js"
 import { registerCardResources } from "./resources.js";
 import { loadPiiConfig, createPiiContext, withPii } from "./pii/index.js";
 import { loadGuardConfig, withGuard } from "./guard/wrap-guard.js";
+import { loadCredentialSource } from "./guard/credentials.js";
 import { ANONYMOUS, type Identity } from "./guard/identity.js";
 import { registerTicketTools } from "./tools/tickets.js";
 import { registerCompanyTools } from "./tools/companies.js";
@@ -128,13 +129,35 @@ export function createMcpServer(
   const piiConfig = loadPiiConfig();
   // Same rule for MCP_AUDIT / MCP_POLICY: a bad value stops the server.
   const guardConfig = loadGuardConfig();
+  // CW_CREDENTIALS=per-user: each person's own CW key. A bad value stops the
+  // server, so a typo cannot fall back to the shared key.
+  const credentialSource = loadCredentialSource();
+  if (credentialSource && configOverride) {
+    // Gateway mode takes the key from the client. That cannot mix with keys held here.
+    throw new Error("CW_CREDENTIALS=per-user cannot be combined with credentials supplied by the client (AUTH_MODE=gateway)");
+  }
+  const identity = options.identity ?? ANONYMOUS;
 
   // MCP Apps (SEP-1865): the ui:// ticket card is static embedded HTML, so it
   // is served with or without credentials (hosts may prefetch it). It is
   // skipped when PII masking is on: the card would show real values.
   if (!piiConfig) registerCardResources(server);
 
-  const config = configOverride ?? getConfig();
+  let config = configOverride ?? getConfig();
+  let blocked: { reason: string; message: string } | undefined;
+  if (credentialSource) {
+    // Never the shared key. A person with no key on file gets a server that refuses every call.
+    config = credentialSource.configFor(identity) ?? null;
+    if (!config) {
+      config = credentialSource.withoutKeys();
+      blocked = {
+        reason: "no-cw-key",
+        message:
+          `No ConnectWise key is on file for "${identity.user}". Ask an administrator to add one. ` +
+          "Nothing was sent to ConnectWise.",
+      };
+    }
+  }
 
   if (!config) {
     // Register a single diagnostic tool so the client gets a clear error
@@ -178,8 +201,13 @@ export function createMcpServer(
   // guard goes first. It then sees Claude's arguments with PII tokens (never
   // real values), a denied call stops before any unmasking, and the audit line
   // is written after masking.
-  if (guardConfig) {
-    withGuard(server, { identity: options.identity ?? ANONYMOUS, config: guardConfig });
+  if (guardConfig || blocked) {
+    withGuard(server, {
+      identity,
+      config: guardConfig ?? { audit: false },
+      credentials: credentialSource ? "per-user" : "shared",
+      blocked,
+    });
   }
   if (piiConfig) {
     withPii(server, createPiiContext(piiConfig, `${config.companyId}:${config.publicKey}`));

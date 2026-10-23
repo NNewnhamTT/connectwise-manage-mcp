@@ -58,6 +58,13 @@ export function loadGuardConfig(
 export interface GuardOptions {
   identity: Identity;
   config: GuardConfig;
+  /** Which ConnectWise credentials this server uses. Shown in the audit line. */
+  credentials?: "shared" | "per-user";
+  /**
+   * When set, every tool call is refused, before the access policy and before
+   * any PII token is unmasked. Used when a person has no ConnectWise key on file.
+   */
+  blocked?: { reason: string; message: string };
   /** Where audit lines go. Default: stderr. */
   emit?: (line: string) => void;
 }
@@ -77,18 +84,8 @@ function resultBytes(result: unknown): number {
   }
 }
 
-function deniedResult(tool: string, toolClass: string, level: AccessLevel) {
-  return {
-    isError: true,
-    content: [
-      {
-        type: "text",
-        text:
-          `Blocked by access policy: ${tool} is a ${toolClass} tool and this caller's access level is "${level}". ` +
-          "Nothing was sent to ConnectWise.",
-      },
-    ],
-  };
+function deniedResult(message: string) {
+  return { isError: true, content: [{ type: "text", text: message }] };
 }
 
 function wrapHandler(name: string, handler: Handler, hasArgs: boolean, opts: GuardOptions): Handler {
@@ -116,6 +113,7 @@ function wrapHandler(name: string, handler: Handler, hasArgs: boolean, opts: Gua
           args: summarizeArgs(args),
           tokens: collectTokens(args),
           status,
+          credential: opts.credentials,
           reason,
           ms: Math.round(performance.now() - started),
           bytes: resultBytes(result),
@@ -123,8 +121,17 @@ function wrapHandler(name: string, handler: Handler, hasArgs: boolean, opts: Gua
       );
     };
 
+    if (opts.blocked) {
+      const denied = deniedResult(opts.blocked.message);
+      log("denied", denied, opts.blocked.reason);
+      return denied;
+    }
+
     if (enforce && !isAllowed(level, name)) {
-      const denied = deniedResult(name, toolClass, level);
+      const denied = deniedResult(
+        `Blocked by access policy: ${name} is a ${toolClass} tool and this caller's access level is "${level}". ` +
+          "Nothing was sent to ConnectWise.",
+      );
       log("denied", denied, `policy:${level}`);
       return denied;
     }

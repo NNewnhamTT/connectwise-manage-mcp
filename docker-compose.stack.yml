@@ -60,10 +60,18 @@ services:
       - AUTH_MODE=env
       - CONDUIT_S2S_SECRET=${CONDUIT_S2S_SECRET:?set CONDUIT_S2S_SECRET}
       - CW_MANAGE_COMPANY_ID=${CW_MANAGE_COMPANY_ID:?set CW_MANAGE_COMPANY_ID}
-      - CW_MANAGE_PUBLIC_KEY=${CW_MANAGE_PUBLIC_KEY:?set CW_MANAGE_PUBLIC_KEY}
-      - CW_MANAGE_PRIVATE_KEY=${CW_MANAGE_PRIVATE_KEY:?set CW_MANAGE_PRIVATE_KEY}
+      # The shared key is needed only when CW_CREDENTIALS=shared (the default). With
+      # per-user keys leave both empty: the server never uses them in that mode.
+      - CW_MANAGE_PUBLIC_KEY=${CW_MANAGE_PUBLIC_KEY:-}
+      - CW_MANAGE_PRIVATE_KEY=${CW_MANAGE_PRIVATE_KEY:-}
       - CW_MANAGE_CLIENT_ID=${CW_MANAGE_CLIENT_ID:?set CW_MANAGE_CLIENT_ID}
       - CW_MANAGE_URL=${CW_MANAGE_URL:-https://api-na.myconnectwise.net}
+      # shared = one API member for everybody. per-user = each person's own CW key
+      # from CW_USER_KEYS (name=publicKey:privateKey;...). A person with no key is
+      # refused. Anyone who can run `docker inspect` on this machine can read these
+      # keys. See cw-per-user-keys.md.
+      - CW_CREDENTIALS=${CW_CREDENTIALS:-shared}
+      - CW_USER_KEYS=${CW_USER_KEYS:-}
       - PII_MODE=on
       - PII_KEY=${PII_KEY:?set PII_KEY}
       - PII_PRESIDIO_URL=http://presidio-analyzer:3000

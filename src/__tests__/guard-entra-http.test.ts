@@ -203,6 +203,49 @@ describe("Entra identity", () => {
     expect(cwCalls).toHaveLength(0);
   });
 
+  describe("per-user ConnectWise keys, named by the Entra sign-in", () => {
+    beforeEach(() => {
+      vi.stubEnv("CW_CREDENTIALS", "per-user");
+      vi.stubEnv("CW_USER_KEYS", "nick@tektrendz.com=PUBN:PRIVN");
+    });
+
+    it("uses the key of the signed-in person's sign-in name", async () => {
+      let auth = "";
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (_input: string, init?: RequestInit) => {
+          auth = Buffer.from(
+            ((init?.headers as Record<string, string>).Authorization ?? "").replace(/^Basic /, ""),
+            "base64",
+          ).toString("utf8");
+          cwCalls.push({ method: init?.method ?? "GET" });
+          return new Response(JSON.stringify({ id: 99 }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }),
+      );
+      validate.fn = async () => identity("Nick@TekTrendz.com", ["CWM.Access"]);
+      const port = await listen();
+      await post(port, { "x-gateway-s2s": s2s(), authorization: "Bearer fake.jwt.value" }, READ);
+      expect(auth).toBe("acme+PUBN:PRIVN");
+      expect(audits()[0]).toMatchObject({ user: "Nick@TekTrendz.com", source: "entra", credential: "per-user" });
+    });
+
+    it("refuses a signed-in person who has no key on file, even with a valid role", async () => {
+      validate.fn = async () => identity("sam@tektrendz.com", ["CWM.Access", "CWM.Admin"]);
+      const port = await listen();
+      const res = await post(port, { "x-gateway-s2s": s2s(), authorization: "Bearer fake.jwt.value" }, READ);
+      expect(res.body).toContain("No ConnectWise key is on file");
+      expect(cwCalls).toHaveLength(0);
+      expect(audits()[0]).toMatchObject({ status: "denied", reason: "no-cw-key" });
+    });
+
+    it("refuses the shared MCP_BEARER_TOKEN (cli-user has no key)", async () => {
+      const port = await listen();
+      const res = await post(port, { "x-gateway-s2s": s2s(), authorization: `Bearer ${STATIC_TOKEN}` }, READ);
+      expect(res.body).toContain("No ConnectWise key is on file");
+      expect(cwCalls).toHaveLength(0);
+    });
+  });
+
   it("does not put the Entra token or the S2S secret in any log line", async () => {
     validate.fn = async () => identity("nick@tektrendz.com", ["CWM.Access"]);
     const port = await listen();

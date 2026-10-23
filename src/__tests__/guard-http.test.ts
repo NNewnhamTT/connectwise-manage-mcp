@@ -14,7 +14,7 @@ const S2S_SECRET = "s2s-do-not-log-7f3a9c-guard-test";
 
 const servers: HttpServer[] = [];
 let auditLines: string[];
-let cwCalls: { method: string; url: string }[];
+let cwCalls: { method: string; url: string; auth?: string }[];
 
 function s2s(secret = S2S_SECRET): string {
   const t = Math.floor(Date.now() / 1000);
@@ -77,7 +77,11 @@ beforeEach(() => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: string, init?: RequestInit) => {
-      cwCalls.push({ method: init?.method ?? "GET", url: input });
+      cwCalls.push({
+        method: init?.method ?? "GET",
+        url: input,
+        auth: (init?.headers as Record<string, string> | undefined)?.Authorization,
+      });
       return new Response(JSON.stringify({ id: 99 }), { status: 200, headers: { "Content-Type": "application/json" } });
     }),
   );
@@ -156,6 +160,43 @@ describe("identity from the signing proxy", () => {
     // The check is on a header only the proxy can set (S2S must verify first).
     const forged = await post(port, { "x-mcp-auth": "entra" }, call("cw_get_contact", { id: 99 }));
     expect(forged.status).toBe(401);
+  });
+
+  describe("per-user ConnectWise keys, named by the proxy", () => {
+    const keyOf = (c: { auth?: string } | undefined) =>
+      Buffer.from((c?.auth ?? "").replace(/^Basic /, ""), "base64").toString("utf8");
+
+    beforeEach(() => {
+      vi.stubEnv("CW_CREDENTIALS", "per-user");
+      vi.stubEnv("CW_USER_KEYS", "alice=PUBA:PRIVA;bob=PUBB:PRIVB");
+    });
+
+    it("uses the key of the person the proxy names, not the shared key", async () => {
+      const port = await listen();
+      await post(port, { "x-gateway-s2s": s2s(), "x-mcp-user": "alice" }, call("cw_get_contact", { id: 99 }));
+      await post(port, { "x-gateway-s2s": s2s(), "x-mcp-user": "bob" }, call("cw_get_contact", { id: 99 }));
+      expect(keyOf(cwCalls[0])).toBe("acme+PUBA:PRIVA");
+      expect(keyOf(cwCalls[1])).toBe("acme+PUBB:PRIVB");
+      expect(audits()[0]).toMatchObject({ user: "alice", credential: "per-user" });
+    });
+
+    it("refuses a person with no key, and an unnamed caller, without calling ConnectWise", async () => {
+      const port = await listen();
+      const noKey = await post(port, { "x-gateway-s2s": s2s(), "x-mcp-user": "carol" }, call("cw_get_contact", { id: 99 }));
+      const unnamed = await post(port, { "x-gateway-s2s": s2s() }, call("cw_get_contact", { id: 99 }));
+      expect(noKey.body).toContain("No ConnectWise key is on file");
+      expect(unnamed.body).toContain("No ConnectWise key is on file");
+      expect(cwCalls).toHaveLength(0);
+      expect(audits().map((l) => l.reason)).toEqual(["no-cw-key", "no-cw-key"]);
+    });
+
+    it("cannot be pointed at another person's key with a forged header", async () => {
+      const port = await listen();
+      // No valid S2S header: rejected before any identity is read.
+      const forged = await post(port, { "x-mcp-user": "alice" }, call("cw_get_contact", { id: 99 }));
+      expect(forged.status).toBe(401);
+      expect(cwCalls).toHaveLength(0);
+    });
   });
 
   it("does not leak the S2S secret or CW keys into audit lines", async () => {

@@ -103,7 +103,7 @@ Three opt-in controls. The Docker stack turns them on. Without them the server b
 - **Audit log (`MCP_AUDIT=on`).** One JSON line per tool call on stderr (`docker logs cw-manage-mcp`): time, request id, user, role, tool, tool class, status (`ok`, `error`, `denied`), duration and response size. Arguments are summarized: numbers and booleans as they are, strings as a length only, plus any PII tokens found. It never holds a real name, a string value or a response body. Query it by user and tool, for example `docker logs cw-manage-mcp | grep '"user":"alice"'`.
 - **Access policy (`MCP_POLICY`).** `read` allows `cw_get_`, `cw_search_` and `cw_list_` tools plus `cw_test_connection`. `write` adds every other tool except delete. `admin` adds `cw_delete_*`. A tool whose name matches none of these patterns counts as write, so a tool added upstream later is blocked at `read` until classified. A person's role overrides the default in either direction. A blocked call returns an error, never reaches ConnectWise, and is logged as `denied`. The Docker stack defaults to `read`, so writes are off until you raise `MCP_POLICY` or give a person a role.
 
-All people share one ConnectWise API member, so ConnectWise's own audit trail still shows that one member as the actor. The server log is where the person is recorded.
+By default all people share one ConnectWise API member, so ConnectWise's own audit trail shows that one member as the actor, and the server log is where the person is recorded. To use each person's own ConnectWise key instead, set `CW_CREDENTIALS=per-user` and list the keys in `CW_USER_KEYS`. See `cw-per-user-keys.md`. A person with no key is refused, with no fallback to the shared key.
 
 #### HTTPS and Entra sign-in (Docker stack)
 
