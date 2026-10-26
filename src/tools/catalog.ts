@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CwManageClient } from "../api-client.js";
+import { fieldsSchema } from "./fields-param.js";
 
 /**
  * Product Catalog tools (ConnectWise Procurement API).
@@ -22,13 +23,15 @@ export function registerCatalogTools(server: McpServer, client: CwManageClient) 
       page: z.number().optional().describe("Page number (default: 1)"),
       pageSize: z.number().optional().describe("Results per page (default: 25, max: 1000)"),
       orderBy: z.string().optional().describe("Field to order by (e.g. 'identifier asc')"),
+      fields: fieldsSchema,
     },
-    async ({ conditions, page, pageSize, orderBy }) => {
+    async ({ conditions, page, pageSize, orderBy, fields }) => {
       const result = await client.get("/procurement/catalog", {
         conditions,
         page: page ?? 1,
         pageSize: pageSize ?? 25,
         orderBy,
+        fields,
       });
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     },

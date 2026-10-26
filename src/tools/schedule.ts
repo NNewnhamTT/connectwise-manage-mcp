@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CwManageClient } from "../api-client.js";
+import { fieldsSchema } from "./fields-param.js";
 
 /**
  * Schedule entries book a member's time against a ticket, activity or project.
@@ -80,14 +81,16 @@ export function registerScheduleTools(server: McpServer, client: CwManageClient)
         .string()
         .optional()
         .describe("Field to order by (e.g. 'dateStart asc')"),
+      fields: fieldsSchema,
     },
     SCHEDULE_READ_ONLY,
-    async ({ conditions, page, pageSize, orderBy }) => {
+    async ({ conditions, page, pageSize, orderBy, fields }) => {
       const result = await client.get("/schedule/entries", {
         conditions,
         page: page ?? 1,
         pageSize: pageSize ?? 25,
         orderBy,
+        fields,
       });
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     },

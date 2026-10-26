@@ -2,6 +2,7 @@ import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CwManageClient, hasApiStatus } from "../api-client.js";
 import { buildTicketNoteBody, mapCreatedNoteResponse } from "./note-payload.js";
+import { fieldsSchema } from "./fields-param.js";
 
 export function registerProjectTools(server: McpServer, client: CwManageClient) {
   server.tool(
@@ -12,13 +13,15 @@ export function registerProjectTools(server: McpServer, client: CwManageClient) 
       page: z.number().optional().describe("Page number (default: 1)"),
       pageSize: z.number().optional().describe("Results per page (default: 25, max: 1000)"),
       orderBy: z.string().optional().describe("Field to order by"),
+      fields: fieldsSchema,
     },
-    async ({ conditions, page, pageSize, orderBy }) => {
+    async ({ conditions, page, pageSize, orderBy, fields }) => {
       const result = await client.get("/project/projects", {
         conditions,
         page: page ?? 1,
         pageSize: pageSize ?? 25,
         orderBy,
+        fields,
       });
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     },
@@ -45,8 +48,9 @@ export function registerProjectTools(server: McpServer, client: CwManageClient) 
       page: z.number().optional().describe("Page number (default: 1)"),
       pageSize: z.number().optional().describe("Results per page (default: 25, max: 1000)"),
       orderBy: z.string().optional().describe("Field to order by (e.g. 'id desc')"),
+      fields: fieldsSchema,
     },
-    async ({ projectId, conditions, page, pageSize, orderBy }) => {
+    async ({ projectId, conditions, page, pageSize, orderBy, fields }) => {
       const conditionParts: string[] = [];
       if (projectId !== undefined) conditionParts.push(`project/id=${projectId}`);
       if (conditions) conditionParts.push(conditions);
@@ -56,6 +60,7 @@ export function registerProjectTools(server: McpServer, client: CwManageClient) 
         page: page ?? 1,
         pageSize: pageSize ?? 25,
         orderBy,
+        fields,
       });
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     },

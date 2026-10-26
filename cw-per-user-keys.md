@@ -8,7 +8,7 @@ What you get (what the code does, tested with a stubbed ConnectWise):
 - PII tokens are separate per person (the token namespace follows the key), so one person cannot use another's tokens.
 - Each audit line carries `"credential":"per-user"`. A key is never logged.
 
-What depends on ConnectWise and is **not verified**: that ConnectWise's own audit trail and record fields (`_info.updatedBy`, `enteredBy`, note and time-entry authors) show the person when their personal key is used, how rate limits apply per key, and exactly what a personal key may do. See the checklist at the end. Do that on a sandbox or a harmless test ticket before you rely on it.
+What depends on ConnectWise: **confirmed (2026-10-23, by the maintainer):** a note added to a ticket through the MCP with a personal key shows that person's own user account in ConnectWise's audit trail. **Not yet verified:** the same for field changes and time entries, `_info.updatedBy` and `enteredBy`, how rate limits apply per key, and exactly what a personal key may do. See the checklist at the end. Do the rest on a sandbox or a harmless test ticket before you rely on it.
 
 ## 1. Create a key for each person in ConnectWise
 
@@ -55,7 +55,8 @@ Where the keys live: in `.env` on the Docker machine, and in the container's env
 ## 5. Sandbox checklist (not done yet)
 
 On a test ticket, as a person with a personal key, check in ConnectWise itself:
-- [ ] The ticket's **audit trail** (history) names the person, not a shared API member, for a note you add and a field you change through Claude.
+- [x] The ticket's **audit trail** (history) names the person, not a shared API member, for a **note** added through Claude (confirmed 2026-10-23).
+- [ ] The same for a **field you change** through Claude (for example the priority).
 - [ ] `_info.updatedBy` and note `createdBy` show the person.
 - [ ] A time entry made through Claude is attributed to the person.
 - [ ] A person whose ConnectWise role is read-only cannot change anything through Claude, whatever `MCP_POLICY` says.

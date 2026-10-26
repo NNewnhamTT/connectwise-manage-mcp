@@ -3,6 +3,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CwManageClient, hasApiStatus } from "../api-client.js";
 import { buildTicketCard, TICKET_CARD_META } from "../card.builder.js";
 import { buildTicketNoteBody, mapCreatedNoteResponse } from "./note-payload.js";
+import { fieldsSchema } from "./fields-param.js";
 
 export function registerTicketTools(server: McpServer, client: CwManageClient) {
   server.tool(
@@ -66,7 +67,7 @@ export function registerTicketTools(server: McpServer, client: CwManageClient) {
 
   server.tool(
     "cw_search_tickets",
-    "Search service tickets in ConnectWise Manage. Use 'conditions' for CW query syntax (e.g. \"status/name != 'Closed'\" or \"company/name = 'Acme'\").",
+    "Search service tickets in ConnectWise Manage. Use 'conditions' for CW query syntax (e.g. \"status/name != 'Closed'\" or \"company/name = 'Acme'\"). If results are too large, retry with `fields` and a smaller `pageSize`.",
     {
       conditions: z
         .string()
@@ -81,13 +82,15 @@ export function registerTicketTools(server: McpServer, client: CwManageClient) {
         .string()
         .optional()
         .describe("Field to order by (e.g. 'id desc')"),
+      fields: fieldsSchema,
     },
-    async ({ conditions, page, pageSize, orderBy }) => {
+    async ({ conditions, page, pageSize, orderBy, fields }) => {
       const result = await client.get("/service/tickets", {
         conditions,
         page: page ?? 1,
         pageSize: pageSize ?? 25,
         orderBy,
+        fields,
       });
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     },

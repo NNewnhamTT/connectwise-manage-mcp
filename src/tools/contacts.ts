@@ -3,6 +3,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CwManageClient } from "../api-client.js";
 import { resolveCommunicationTypes } from "./communication-types.js";
 import { buildContactSearchQuery } from "./contact-search.js";
+import { fieldsSchema } from "./fields-param.js";
 import {
   asContactList,
   assertContactPatchOperations,
@@ -71,8 +72,9 @@ export function registerContactTools(server: McpServer, client: CwManageClient) 
       page: z.number().optional().describe("Page number (default: 1)"),
       pageSize: z.number().optional().describe("Results per page (default: 25, max: 1000)"),
       orderBy: z.string().optional().describe("Field to order by"),
+      fields: fieldsSchema,
     },
-    async ({ conditions, childConditions, typeName, typeId, page, pageSize, orderBy }) => {
+    async ({ conditions, childConditions, typeName, typeId, page, pageSize, orderBy, fields }) => {
       const query = buildContactSearchQuery({ conditions, childConditions, typeName, typeId });
       const result = await client.get("/company/contacts", {
         conditions: query.conditions,
@@ -80,6 +82,7 @@ export function registerContactTools(server: McpServer, client: CwManageClient) 
         page: page ?? 1,
         pageSize: pageSize ?? 25,
         orderBy,
+        fields,
       });
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     },
