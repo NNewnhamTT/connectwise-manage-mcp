@@ -182,26 +182,30 @@ export function registerTicketTools(server: McpServer, client: CwManageClient) {
 
   server.tool(
     "cw_get_ticket_notes",
-    "Get all notes/discussions on a service ticket, including notes from any child tickets.",
+    "Get all notes/discussions on a service ticket, including notes from any child tickets. Notes can be large (each repeats member and contact objects). If results are too large, retry with `fields` (e.g. 'id,text,internalAnalysisFlag,member/identifier,_info/dateEntered') and a smaller `pageSize`. Use `conditions` to filter (e.g. 'bundledFlag=false' to skip notes from bundled child tickets) and `orderBy` to sort.",
     {
       id: z.number().describe("Ticket ID"),
       page: z.number().optional().describe("Page number (default: 1)"),
       pageSize: z.number().optional().describe("Results per page (default: 25, max: 1000)"),
+      conditions: z.string().optional().describe("Optional. ConnectWise conditions query string on note fields, e.g. 'internalAnalysisFlag=false' or 'bundledFlag=false'."),
+      orderBy: z.string().optional().describe("Optional. Field to order by (e.g. 'id desc')"),
+      fields: fieldsSchema,
     },
-    async ({ id, page, pageSize }) => {
+    async ({ id, page, pageSize, conditions, orderBy, fields }) => {
+      const params = {
+        page: page ?? 1,
+        pageSize: pageSize ?? 25,
+        conditions,
+        orderBy,
+        fields,
+      };
       try {
-        const result = await client.get(`/service/tickets/${id}/allNotes`, {
-          page: page ?? 1,
-          pageSize: pageSize ?? 25,
-        });
+        const result = await client.get(`/service/tickets/${id}/allNotes`, params);
         return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
       } catch (err: unknown) {
         if (hasApiStatus(err, 404, 405)) {
           // allNotes not supported on this CWM version — fall back to /notes
-          const result = await client.get(`/service/tickets/${id}/notes`, {
-            page: page ?? 1,
-            pageSize: pageSize ?? 25,
-          });
+          const result = await client.get(`/service/tickets/${id}/notes`, params);
           return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
         }
         throw err;

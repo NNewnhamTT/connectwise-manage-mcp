@@ -80,26 +80,30 @@ export function registerProjectTools(server: McpServer, client: CwManageClient) 
 
   server.tool(
     "cw_get_project_ticket_notes",
-    "Get all notes on a project ticket, including notes from any child tickets.",
+    "Get all notes on a project ticket, including notes from any child tickets. If results are too large, retry with `fields` and a smaller `pageSize`. Use `conditions` to filter and `orderBy` to sort.",
     {
       id: z.number().describe("Project ticket ID"),
       page: z.number().optional().describe("Page number (default: 1)"),
       pageSize: z.number().optional().describe("Results per page (default: 25, max: 1000)"),
+      conditions: z.string().optional().describe("Optional. ConnectWise conditions query string on note fields."),
+      orderBy: z.string().optional().describe("Optional. Field to order by (e.g. 'id desc')"),
+      fields: fieldsSchema,
     },
-    async ({ id, page, pageSize }) => {
+    async ({ id, page, pageSize, conditions, orderBy, fields }) => {
+      const params = {
+        page: page ?? 1,
+        pageSize: pageSize ?? 25,
+        conditions,
+        orderBy,
+        fields,
+      };
       try {
-        const result = await client.get(`/project/tickets/${id}/allNotes`, {
-          page: page ?? 1,
-          pageSize: pageSize ?? 25,
-        });
+        const result = await client.get(`/project/tickets/${id}/allNotes`, params);
         return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
       } catch (err: unknown) {
         if (hasApiStatus(err, 404, 405)) {
           // allNotes not supported on this CWM version — fall back to /notes
-          const result = await client.get(`/project/tickets/${id}/notes`, {
-            page: page ?? 1,
-            pageSize: pageSize ?? 25,
-          });
+          const result = await client.get(`/project/tickets/${id}/notes`, params);
           return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
         }
         throw err;

@@ -64,12 +64,16 @@ export function registerOpportunityTools(server: McpServer, client: CwManageClie
       opportunityId: z.number().describe("Opportunity ID"),
       page: z.number().optional().describe("Page number (default: 1)"),
       pageSize: z.number().optional().describe("Results per page (default: 25, max: 1000)"),
+      conditions: z.string().optional().describe("Optional. ConnectWise conditions query string on note fields."),
+      orderBy: z.string().optional().describe("Optional. Field to order by (e.g. 'id desc')"),
       fields: fieldsSchema,
     },
-    async ({ opportunityId, page, pageSize, fields }) => {
+    async ({ opportunityId, page, pageSize, conditions, orderBy, fields }) => {
       const result = await client.get(`/sales/opportunities/${opportunityId}/notes`, {
         page: page ?? 1,
         pageSize: pageSize ?? 25,
+        conditions,
+        orderBy,
         fields,
       });
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
