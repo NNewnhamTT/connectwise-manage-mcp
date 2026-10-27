@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "comment": "Nickolas, 2026-10-27. Internal-only notes on any ticket; ticket creation on the Administrative board only (for now), always with its silent default status; ticket field changes limited to priority, type, subType and item; NO status changes. Board: 40 Administrative. Other boards are left out by Nickolas; Implementations (60) and AutoElevate (72) also have a default status with an email template. Status 674 is the Administrative default status, which had no emailTemplate on 2026-10-27. CW workflow rules are not visible to the MCP: test on a harmless ticket before relying on this. See Knowledge_Base Changes 2026-10-27_ALL_cw-mcp-write-policy.md.",
+  "exemptUsers": [],
+  "tools": {
+    "cw_add_ticket_note": {
+      "require": { "internalAnalysisFlag": true, "processNotifications": false },
+      "denyTrue": [
+        "detailDescriptionFlag",
+        "resolutionFlag",
+        "customerUpdatedFlag",
+        "emailContactFlag",
+        "emailResourceFlag",
+        "emailCcFlag"
+      ],
+      "denyArgs": ["emailCc"]
+    },
+    "cw_update_ticket": {
+      "patch": {
+        "allowPaths": ["priority/id", "type/id", "subType/id", "item/id"]
+      }
+    },
+    "cw_create_ticket": {
+      "requireArgs": ["boardId", "statusId"],
+      "allowValues": {
+        "boardId": [40],
+        "statusId": [674]
+      }
+    }
+  }
+}

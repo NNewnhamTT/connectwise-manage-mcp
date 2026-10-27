@@ -93,6 +93,13 @@ services:
       - AZURE_REQUIRED_ROLE=${AZURE_REQUIRED_ROLE:-CWM.Access}
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - NODE_ENV=production
+      # Optional write policy: a JSON file that lists the write tools allowed and
+      # the argument values each may use (default-deny). Empty = off. The folder
+      # ./deploy/write-policy is mounted read-only at /etc/cw-mcp, so a value is
+      # /etc/cw-mcp/write-policy.json. See README, "Write policy".
+      - MCP_WRITE_POLICY_FILE=${MCP_WRITE_POLICY_FILE:-}
+    volumes:
+      - ./deploy/write-policy:/etc/cw-mcp:ro
     expose:
       - "8080"
     depends_on:

@@ -16,7 +16,10 @@
  *   MCP_AUDIT   on | off (default off). One JSON line per tool call on stderr.
  *   MCP_POLICY  read | write | admin. Default access level for callers without
  *               a role of their own. Unset: no restriction for such callers.
- * A bad value throws, so a typo cannot switch a control off.
+ *   MCP_WRITE_POLICY_FILE  Path to a JSON write policy (see write-policy.ts). When set,
+ *               write and destructive tools are refused unless the file lists them, and
+ *               each listed tool's arguments are checked. Read tools are not affected.
+ * A bad value or an unreadable file throws, so a typo cannot switch a control off.
  */
 
 import { randomUUID } from "node:crypto";
@@ -29,11 +32,14 @@ import {
 } from "./audit.js";
 import { parseAccessLevel, type AccessLevel, type Identity } from "./identity.js";
 import { classifyTool, isAllowed } from "./policy.js";
+import { checkWrite, loadWritePolicyFile, type WritePolicy } from "./write-policy.js";
 
 export interface GuardConfig {
   audit: boolean;
   /** Level for callers whose identity has no role. Undefined: unrestricted. */
   defaultLevel?: AccessLevel;
+  /** Per-tool rules for write tools. Applies whatever the access level is. */
+  writePolicy?: WritePolicy;
 }
 
 type Env = Record<string, string | undefined>;
@@ -51,8 +57,13 @@ export function loadGuardConfig(
     defaultLevel = parseAccessLevel(policyRaw);
     if (!defaultLevel) throw new Error("MCP_POLICY must be 'read', 'write' or 'admin'");
   }
+  const policyFile = env.MCP_WRITE_POLICY_FILE?.trim();
+  const writePolicy = policyFile ? loadWritePolicyFile(policyFile) : undefined;
+
   const audit = auditRaw === "on";
-  return audit || defaultLevel ? { audit, defaultLevel } : undefined;
+  return audit || defaultLevel || writePolicy
+    ? { audit, defaultLevel, ...(writePolicy ? { writePolicy } : {}) }
+    : undefined;
 }
 
 export interface GuardOptions {
@@ -101,6 +112,7 @@ function wrapHandler(name: string, handler: Handler, hasArgs: boolean, opts: Gua
     const enforce = config.defaultLevel !== undefined || identity.role !== undefined;
     const level: AccessLevel = identity.role ?? config.defaultLevel ?? "admin";
 
+    let injected: string[] = [];
     const log = (status: AuditStatus, result: unknown, reason?: string): void => {
       if (!config.audit) return;
       emit(
@@ -115,6 +127,7 @@ function wrapHandler(name: string, handler: Handler, hasArgs: boolean, opts: Gua
           status,
           credential: opts.credentials,
           reason,
+          injected,
           ms: Math.round(performance.now() - started),
           bytes: resultBytes(result),
         }),
@@ -136,9 +149,33 @@ function wrapHandler(name: string, handler: Handler, hasArgs: boolean, opts: Gua
       return denied;
     }
 
+    // Write policy: independent of the access level. A caller who may write still
+    // only gets the tools and argument values the policy file allows.
+    let callArgs = a;
+    if (config.writePolicy && toolClass !== "read") {
+      const decision = checkWrite(config.writePolicy, name, args, identity.user);
+      if (!decision.allowed) {
+        const denied = deniedResult(decision.message);
+        log("denied", denied, decision.reason);
+        return denied;
+      }
+      if (decision.injected.length > 0) {
+        if (!hasArgs) {
+          // Cannot add values to a handler that takes no argument object.
+          const denied = deniedResult(
+            `Blocked by write policy: cannot apply required values to ${name}. Nothing was sent to ConnectWise.`,
+          );
+          log("denied", denied, `rule:${name}:no-args`);
+          return denied;
+        }
+        injected = decision.injected;
+        callArgs = [decision.args, ...a.slice(1)];
+      }
+    }
+
     let result: unknown;
     try {
-      result = await handler(...a);
+      result = await handler(...callArgs);
     } catch (err) {
       log("error", undefined);
       throw err;

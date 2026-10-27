@@ -103,6 +103,21 @@ Three opt-in controls. The Docker stack turns them on. Without them the server b
 - **Audit log (`MCP_AUDIT=on`).** One JSON line per tool call on stderr (`docker logs cw-manage-mcp`): time, request id, user, role, tool, tool class, status (`ok`, `error`, `denied`), duration and response size. Arguments are summarized: numbers and booleans as they are, strings as a length only, plus any PII tokens found. It never holds a real name, a string value or a response body. Query it by user and tool, for example `docker logs cw-manage-mcp | grep '"user":"alice"'`.
 - **Access policy (`MCP_POLICY`).** `read` allows `cw_get_`, `cw_search_` and `cw_list_` tools plus `cw_test_connection`. `write` adds every other tool except delete. `admin` adds `cw_delete_*`. A tool whose name matches none of these patterns counts as write, so a tool added upstream later is blocked at `read` until classified. A person's role overrides the default in either direction. A blocked call returns an error, never reaches ConnectWise, and is logged as `denied`. The Docker stack defaults to `read`, so writes are off until you raise `MCP_POLICY` or give a person a role.
 
+#### Write policy (`MCP_WRITE_POLICY_FILE`)
+
+The access policy only says whether a caller may write. A write policy narrows what may be written. It is a JSON file (example: `deploy/write-policy/write-policy.example.json`). Set `MCP_WRITE_POLICY_FILE=/etc/cw-mcp/write-policy.json` in the Docker stack, with the file in `deploy/write-policy/`. Unset, the server behaves as before.
+
+- **Default deny.** With a file set, every write or destructive tool not listed under `tools` is refused, whoever calls it and whatever their role. Read tools are untouched. `exemptUsers` (empty by default) skip the policy.
+- **Rules per tool**, checked on the arguments before anything is sent to ConnectWise:
+  - `require`: `{arg: value}`. Refuse if the argument is set to anything else. Add it when missing.
+  - `denyTrue`: `[arg]`. Refuse if the argument is true. Adds nothing, so it cannot overwrite state. Use it for fields such as `customerUpdatedFlag`, where forcing `false` could hide a real customer update.
+  - `denyArgs`, `requireArgs`: refuse if the argument is set, or missing.
+  - `allowValues`: `{arg: [values]}`. Refuse any other value (for example `boardId`, `statusId`).
+  - `patch`: for JSON Patch tools such as `cw_update_ticket`. Only the listed `allowPaths` (exact, case-sensitive) and `allowOps` (default `replace`) pass, and `allowValues` limits a path to listed values. A path not listed, such as `automaticEmailContactFlag` or `board/id`, is refused.
+- A refused call returns an error, never reaches ConnectWise, and is logged as `denied` with a reason such as `rule:cw_update_ticket:patch-path:board/id`. Values the policy added are logged by name (`injected`). Patch paths (not values) show in the audit `args`.
+- A bad or unreadable file stops the server. The error names the problem and never repeats the file content.
+- Statuses and boards can send automatic email in ConnectWise. The server cannot see that setting. Put only statuses and boards you have checked in the lists.
+
 By default all people share one ConnectWise API member, so ConnectWise's own audit trail shows that one member as the actor, and the server log is where the person is recorded. To use each person's own ConnectWise key instead, set `CW_CREDENTIALS=per-user` and list the keys in `CW_USER_KEYS`. See `cw-per-user-keys.md`. A person with no key is refused, with no fallback to the shared key.
 
 #### HTTPS and Entra sign-in (Docker stack)

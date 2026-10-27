@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "comment": "Example only. Ids of -1 never match a real board or status, so this file allows no ticket creation until you replace them. Use boards whose default status carries no email template, and pin that default status id. No status changes are allowed (status/id is not in allowPaths). Copy to write-policy.json before use. The real file for this site is write-policy.json.",
+  "exemptUsers": [],
+  "tools": {
+    "cw_add_ticket_note": {
+      "require": { "internalAnalysisFlag": true, "processNotifications": false },
+      "denyTrue": [
+        "detailDescriptionFlag",
+        "resolutionFlag",
+        "customerUpdatedFlag",
+        "emailContactFlag",
+        "emailResourceFlag",
+        "emailCcFlag"
+      ],
+      "denyArgs": ["emailCc"]
+    },
+    "cw_update_ticket": {
+      "patch": {
+        "allowPaths": ["priority/id", "type/id", "subType/id", "item/id"]
+      }
+    },
+    "cw_create_ticket": {
+      "requireArgs": ["boardId", "statusId"],
+      "allowValues": { "boardId": [-1], "statusId": [-1] }
+    }
+  }
+}
