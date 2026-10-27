@@ -24,6 +24,25 @@ export function safeOAuthErrorCode(value: unknown): string {
   return typeof value === "string" && /^[a-z_]{1,40}$/.test(value) ? value : "unrecognised_error";
 }
 
+/**
+ * The grant type of a token request, for the rejection log. Only the two
+ * grants this proxy advertises are logged by name. Anything else is replaced.
+ */
+export function safeGrantType(value: string | null): string {
+  return value === "authorization_code" || value === "refresh_token" ? value : "other";
+}
+
+/**
+ * The scope sent to Entra. The MCP server and its OAuth client are one app
+ * registration, so Entra treats a token request as "a token for itself". Entra
+ * accepts that only when the resource is written as the GUID app id: the
+ * api://<clientId> form fails with AADSTS90009. A v2 token carries the client
+ * id as `aud` either way, and validateToken accepts it.
+ */
+export function entraScope(config: EntraConfig): string {
+  return `${config.clientId}/access_as_user openid profile email offline_access`;
+}
+
 const MAX_BODY_BYTES = 65_536; // 64 KB — sufficient for any OAuth request body
 
 function readBody(req: IncomingMessage): Promise<string> {
@@ -175,10 +194,7 @@ export function handleAuthorize(
 
   // Override client_id and scope
   azureParams.set("client_id", config.clientId);
-  azureParams.set(
-    "scope",
-    `api://${config.clientId}/access_as_user openid profile email offline_access`,
-  );
+  azureParams.set("scope", entraScope(config));
 
   const azureAuthUrl =
     `https://login.microsoftonline.com/${config.tenantId}/oauth2/v2.0/authorize?` +
@@ -210,10 +226,7 @@ export async function handleToken(
 
   // If scope is present (e.g. sent by Claude.ai), replace it with our API scope
   if (params.has("scope")) {
-    params.set(
-      "scope",
-      `api://${config.clientId}/access_as_user openid profile email offline_access`,
-    );
+    params.set("scope", entraScope(config));
   }
 
   const azureTokenUrl = `https://login.microsoftonline.com/${config.tenantId}/oauth2/v2.0/token`;
@@ -237,11 +250,13 @@ export async function handleToken(
       } catch {
         sanitized = { error: "invalid_request" };
       }
-      // Log the status and the OAuth error code only. The raw Azure body is
-      // never logged: it can carry tenant detail, trace ids and token material.
+      // Log the status, the grant type and the OAuth error code only. The raw
+      // Azure body is never logged: it can carry tenant detail, trace ids and
+      // token material.
       console.error(
         JSON.stringify({
           event: "token_exchange_rejected",
+          grant: safeGrantType(params.get("grant_type")),
           status: azureRes.status,
           error: safeOAuthErrorCode(sanitized.error),
         }),

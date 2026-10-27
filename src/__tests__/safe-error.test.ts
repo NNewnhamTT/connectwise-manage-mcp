@@ -623,6 +623,7 @@ describe("token exchange logging", () => {
     expect(errorLog).toHaveBeenCalledTimes(1);
     expect(JSON.parse(String(errorLog.mock.calls[0][0]))).toEqual({
       event: "token_exchange_rejected",
+      grant: "authorization_code",
       status: 400,
       error: "invalid_grant",
     });
