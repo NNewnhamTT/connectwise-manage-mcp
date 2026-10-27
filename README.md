@@ -154,6 +154,11 @@ needed.
 
 ### Tickets
 - `cw_search_tickets` — Search service tickets with conditions
+- `cw_get_ticket_count` — Count service tickets that match conditions (no ticket data returned)
+- `cw_get_ticket_notes_count` — Count the notes on a ticket (no note text returned)
+- `cw_get_ticket_documents` — List the documents (attachments) on a ticket, metadata only (no file content)
+- `cw_get_ticket_documents_count` — Count the documents on a ticket (no list returned)
+- `cw_get_ticket_configurations_count` — Count the configurations linked to a ticket (no list returned)
 - `cw_get_ticket` — Get a ticket by ID
 - `cw_get_ticket_configurations` — List configuration references associated with a service ticket (paged)
 - `cw_update_ticket_configurations` — Add/remove ticket configuration associations in an ordered batch, reporting every outcome

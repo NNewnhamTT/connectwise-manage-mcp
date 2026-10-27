@@ -27,6 +27,20 @@ export function registerTicketTools(server: McpServer, client: CwManageClient) {
     },
   );
 
+  // Named cw_get_* on purpose (read-level by prefix, see src/guard/policy.ts).
+  server.tool(
+    "cw_get_ticket_configurations_count",
+    "Count the configurations associated with a service ticket without listing them. Returns {\"count\": N}. Use 'conditions' to count a subset.",
+    {
+      id: z.number().int().positive().describe("Service ticket ID"),
+      conditions: z.string().optional().describe("Optional. ConnectWise conditions query string."),
+    },
+    async ({ id, conditions }) => {
+      const result = await client.get(`/service/tickets/${id}/configurations/count`, { conditions });
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    },
+  );
+
   server.tool(
     "cw_update_ticket_configurations",
     "Add or remove configuration associations on a service ticket. Operations run sequentially in the supplied order, including repeated configuration IDs. Removing an association leaves the configuration object intact. Continues after individual failures without rollback or automatic retries; returns every operation's outcome and sets isError if any fail. Duplicate-add and missing-association errors are reported as failures.",
@@ -92,6 +106,23 @@ export function registerTicketTools(server: McpServer, client: CwManageClient) {
         orderBy,
         fields,
       });
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    },
+  );
+
+  // Named cw_get_* on purpose: src/guard/policy.ts classifies read tools by that
+  // prefix, so this stays read-level with no policy change.
+  server.tool(
+    "cw_get_ticket_count",
+    "Count service tickets that match a ConnectWise conditions query, without returning the tickets. Returns {\"count\": N}. Use it for 'how many' questions instead of paging through cw_search_tickets. Use 'conditions' for CW query syntax (e.g. \"company/name = 'Acme' and closedFlag = false\"). Omit 'conditions' to count all tickets.",
+    {
+      conditions: z
+        .string()
+        .optional()
+        .describe("ConnectWise conditions query string"),
+    },
+    async ({ conditions }) => {
+      const result = await client.get("/service/tickets/count", { conditions });
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     },
   );
@@ -210,6 +241,62 @@ export function registerTicketTools(server: McpServer, client: CwManageClient) {
         }
         throw err;
       }
+    },
+  );
+
+  // Named cw_get_* on purpose (read-level by prefix, see src/guard/policy.ts).
+  server.tool(
+    "cw_get_ticket_notes_count",
+    "Count the notes on a service ticket without returning them. Returns {\"count\": N}. Counts the same way cw_get_ticket_notes lists (including notes from bundled child tickets). Use 'conditions' to count a subset (e.g. 'bundledFlag=false').",
+    {
+      id: z.number().describe("Ticket ID"),
+      conditions: z
+        .string()
+        .optional()
+        .describe("Optional. ConnectWise conditions query string on note fields, e.g. 'internalAnalysisFlag=false' or 'bundledFlag=false'."),
+    },
+    async ({ id, conditions }) => {
+      const result = await client.get(`/service/tickets/${id}/allNotes/count`, { conditions });
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    },
+  );
+
+  // Named cw_get_* on purpose (read-level by prefix, see src/guard/policy.ts).
+  // Lists document metadata only. File content is never downloaded.
+  server.tool(
+    "cw_get_ticket_documents",
+    "List the documents (attachments) on a service ticket: metadata only, such as title, file name, size and who added it. Does not return file content. Use it to check whether a ticket has attachments. If results are large, retry with `fields` (e.g. 'id,title,fileName,size') and a smaller `pageSize`.",
+    {
+      id: z.number().describe("Ticket ID"),
+      page: z.number().optional().describe("Page number (default: 1)"),
+      pageSize: z.number().optional().describe("Results per page (default: 25, max: 1000)"),
+      conditions: z.string().optional().describe("Optional. ConnectWise conditions query string on document fields."),
+      orderBy: z.string().optional().describe("Optional. Field to order by (e.g. 'id desc')"),
+      fields: fieldsSchema,
+    },
+    async ({ id, page, pageSize, conditions, orderBy, fields }) => {
+      const result = await client.get(`/service/tickets/${id}/documents`, {
+        page: page ?? 1,
+        pageSize: pageSize ?? 25,
+        conditions,
+        orderBy,
+        fields,
+      });
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    },
+  );
+
+  // Named cw_get_* on purpose (read-level by prefix, see src/guard/policy.ts).
+  server.tool(
+    "cw_get_ticket_documents_count",
+    "Count the documents (attachments) on a service ticket without listing them. Returns {\"count\": N}. Use it to check quickly whether a ticket has any attachments. Use 'conditions' to count a subset.",
+    {
+      id: z.number().describe("Ticket ID"),
+      conditions: z.string().optional().describe("Optional. ConnectWise conditions query string on document fields."),
+    },
+    async ({ id, conditions }) => {
+      const result = await client.get(`/service/tickets/${id}/documents/count`, { conditions });
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     },
   );
 
