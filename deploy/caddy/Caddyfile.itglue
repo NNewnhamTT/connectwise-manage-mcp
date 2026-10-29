@@ -1,0 +1,27 @@
+# HTTPS for both MCP servers: the ConnectWise host from Caddyfile, plus the
+# IT Glue host. Use with `--profile https --profile itglue` and
+# CADDY_CONFIG=Caddyfile.itglue. ITGLUE_HOSTNAME must be set and must be a
+# different host name from MCP_HOSTNAME: each server serves its own OAuth
+# routes at the root (/.well-known/..., /authorize, /token).
+#
+# The same Cloudflare token issues both certificates, so ITGLUE_HOSTNAME must be
+# in the zone that token can edit.
+import /etc/caddy/Caddyfile
+
+{$ITGLUE_HOSTNAME} {
+	tls {
+		dns cloudflare {env.CF_API_TOKEN}
+		resolvers 1.1.1.1 1.0.0.1
+	}
+
+	reverse_proxy itglue-signing-proxy:8081 {
+		flush_interval -1
+	}
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+}

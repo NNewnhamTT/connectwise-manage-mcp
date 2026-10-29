@@ -421,6 +421,25 @@ npm run typecheck
 npm test
 ```
 
+## IT Glue MCP in the same stack (profile `itglue`)
+
+`docker-compose.stack.yml` can also run the TekTrendz IT Glue MCP fork
+(`NNewnhamTT/itglue-mcp`, branch `tektrendz-hardening`) behind its own signing
+proxy. It shares the Presidio container and, with HTTPS, the Caddy container.
+
+1. Clone the fork next to this repo (or set `ITGLUE_REPO_PATH`) and check out
+   `tektrendz-hardening`.
+2. Fill the `ITGLUE_*` block of `.env` (see `stack.env.example`). It needs its
+   own S2S secret, its own proxy tokens and an IT Glue API key.
+3. `docker compose -f docker-compose.stack.yml --profile itglue up -d --build`.
+   The IT Glue proxy listens on `ITGLUE_PROXY_PORT` (default 8082).
+4. HTTPS: add `--profile https`, set `ITGLUE_HOSTNAME` (a second host name in
+   the same Cloudflare zone) and `CADDY_CONFIG=Caddyfile.itglue`.
+5. Entra: a separate app registration with roles `ITG.Access`, `ITG.Write` and
+   `ITG.Admin`. Follow `entra-setup-portal-steps.md` with those role names and
+   the IT Glue host name, then set `ITGLUE_PROXY_AUTH=entra`,
+   `ITGLUE_MCP_OAUTH_ENABLED=true` and the `ITGLUE_AZURE_*` values.
+
 ## Contributing
 
 1. Fork the repository

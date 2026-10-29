@@ -126,14 +126,19 @@ services:
     image: cw-mcp-caddy:local
     container_name: cw-caddy
     restart: unless-stopped
+    # Caddyfile = ConnectWise host only. Caddyfile.itglue = both hosts; use it
+    # only with `--profile itglue` too (its proxy must exist).
+    command: ["caddy", "run", "--config", "/etc/caddy/${CADDY_CONFIG:-Caddyfile}", "--adapter", "caddyfile"]
     environment:
       - MCP_HOSTNAME=${MCP_HOSTNAME:-}
+      - ITGLUE_HOSTNAME=${ITGLUE_HOSTNAME:-}
       - CF_API_TOKEN=${CF_API_TOKEN:-}
     ports:
       # Loopback by default. Set HTTPS_BIND=0.0.0.0 for other machines.
       - "${HTTPS_BIND:-127.0.0.1}:443:443"
     volumes:
       - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./deploy/caddy/Caddyfile.itglue:/etc/caddy/Caddyfile.itglue:ro
       - caddy-data:/data
       - caddy-config:/config
     depends_on:
@@ -157,6 +162,89 @@ services:
       timeout: 10s
       retries: 5
       start_period: 90s
+
+  # ---------------------------------------------------------------------------
+  # IT Glue MCP (optional): start with `--profile itglue`.
+  # The server is the TekTrendz fork NNewnhamTT/itglue-mcp, branch
+  # tektrendz-hardening, cloned next to this repo (ITGLUE_REPO_PATH, default
+  # ../itglue-mcp). Same controls as the ConnectWise server: PII masking through
+  # the shared Presidio container, audit log, access policy, Entra sign-in.
+  # Password tools are removed in that fork. Its own proxy, its own S2S secret,
+  # its own published port, and its own Entra app (roles ITG.Access / ITG.Write /
+  # ITG.Admin). With `--profile https` also set CADDY_CONFIG=Caddyfile.itglue.
+  # ---------------------------------------------------------------------------
+  itglue-signing-proxy:
+    profiles: ["itglue"]
+    image: node:26-alpine
+    container_name: itglue-signing-proxy
+    restart: unless-stopped
+    user: node
+    working_dir: /app
+    command: ["node", "/app/proxy.mjs"]
+    volumes:
+      - ./deploy/signing-proxy/proxy.mjs:/app/proxy.mjs:ro
+    environment:
+      # Separate from CONDUIT_S2S_SECRET, so one proxy cannot sign for the other server.
+      - CONDUIT_S2S_SECRET=${ITGLUE_S2S_SECRET:-}
+      - PROXY_USERS=${ITGLUE_PROXY_USERS:-}
+      - PROXY_BEARER_TOKEN=
+      - PROXY_AUTH=${ITGLUE_PROXY_AUTH:-tokens}
+      - UPSTREAM_URL=http://itglue-mcp:8080
+      - PORT=8081
+    ports:
+      - "${PROXY_BIND:-127.0.0.1}:${ITGLUE_PROXY_PORT:-8082}:8081"
+    depends_on:
+      itglue-mcp:
+        condition: service_healthy
+
+  itglue-mcp:
+    profiles: ["itglue"]
+    build:
+      context: ${ITGLUE_REPO_PATH:-../itglue-mcp}
+      dockerfile: Dockerfile
+      # Upstream's own docker-compose.yml names a "production" stage that its
+      # Dockerfile does not have. The final stage is "runner".
+      target: runner
+    image: itglue-mcp-pii:local
+    container_name: itglue-mcp
+    restart: unless-stopped
+    environment:
+      - MCP_TRANSPORT=http
+      - MCP_HTTP_HOST=0.0.0.0
+      - MCP_HTTP_PORT=8080
+      - AUTH_MODE=env
+      # The server refuses to start with an empty or placeholder secret.
+      - CONDUIT_S2S_SECRET=${ITGLUE_S2S_SECRET:-}
+      # One shared IT Glue API key (IT Glue has no per-person API keys we use).
+      # Anyone who can run `docker inspect` on this machine can read it.
+      - ITGLUE_API_KEY=${ITGLUE_API_KEY:-}
+      - ITGLUE_REGION=${ITGLUE_REGION:-us}
+      - PII_MODE=on
+      - PII_KEY=${PII_KEY:?set PII_KEY}
+      - PII_PRESIDIO_URL=http://presidio-analyzer:3000
+      - PII_PRESIDIO_TIMEOUT_MS=${PII_PRESIDIO_TIMEOUT_MS:-5000}
+      - MCP_AUDIT=on
+      - MCP_POLICY=${ITGLUE_MCP_POLICY:-read}
+      - MCP_OAUTH_ENABLED=${ITGLUE_MCP_OAUTH_ENABLED:-false}
+      - MCP_SERVER_URL=${ITGLUE_MCP_SERVER_URL:-}
+      - AZURE_TENANT_ID=${AZURE_TENANT_ID:-}
+      - AZURE_CLIENT_ID=${ITGLUE_AZURE_CLIENT_ID:-}
+      - AZURE_AUDIENCE=${ITGLUE_AZURE_AUDIENCE:-}
+      - AZURE_REQUIRED_ROLE=${ITGLUE_AZURE_REQUIRED_ROLE:-ITG.Access}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - NODE_ENV=production
+    expose:
+      - "8080"
+    depends_on:
+      presidio-analyzer:
+        condition: service_healthy
+    # Same reason as the ConnectWise server: `localhost` resolves to ::1 first.
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
 volumes:
   caddy-data:
