@@ -170,8 +170,8 @@ services:
   # ../itglue-mcp). Same controls as the ConnectWise server: PII masking through
   # the shared Presidio container, audit log, access policy, Entra sign-in.
   # Password tools are removed in that fork. Its own proxy, its own S2S secret,
-  # its own published port, and its own Entra app (roles ITG.Access / ITG.Write /
-  # ITG.Admin). With `--profile https` also set CADDY_CONFIG=Caddyfile.itglue.
+  # its own published port, and its own Entra app (roles ITGM.Access / ITGM.Write /
+  # ITGM.Admin). With `--profile https` also set CADDY_CONFIG=Caddyfile.itglue.
   # ---------------------------------------------------------------------------
   itglue-signing-proxy:
     profiles: ["itglue"]
@@ -230,7 +230,7 @@ services:
       - AZURE_TENANT_ID=${AZURE_TENANT_ID:-}
       - AZURE_CLIENT_ID=${ITGLUE_AZURE_CLIENT_ID:-}
       - AZURE_AUDIENCE=${ITGLUE_AZURE_AUDIENCE:-}
-      - AZURE_REQUIRED_ROLE=${ITGLUE_AZURE_REQUIRED_ROLE:-ITG.Access}
+      - AZURE_REQUIRED_ROLE=${ITGLUE_AZURE_REQUIRED_ROLE:-ITGM.Access}
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - NODE_ENV=production
     expose:
