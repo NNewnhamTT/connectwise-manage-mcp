@@ -435,8 +435,8 @@ proxy. It shares the Presidio container and, with HTTPS, the Caddy container.
    The IT Glue proxy listens on `ITGLUE_PROXY_PORT` (default 8082).
 4. HTTPS: add `--profile https`, set `ITGLUE_HOSTNAME` (a second host name in
    the same Cloudflare zone) and `CADDY_CONFIG=Caddyfile.itglue`.
-5. Entra: a separate app registration with roles `ITG.Access`, `ITG.Write` and
-   `ITG.Admin`. Follow `entra-setup-portal-steps.md` with those role names and
+5. Entra: a separate app registration with roles `ITGM.Access`, `ITGM.Write` and
+   `ITGM.Admin`. Follow `entra-setup-portal-steps.md` with those role names and
    the IT Glue host name, then set `ITGLUE_PROXY_AUTH=entra`,
    `ITGLUE_MCP_OAUTH_ENABLED=true` and the `ITGLUE_AZURE_*` values.
 
