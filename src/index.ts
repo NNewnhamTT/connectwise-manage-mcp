@@ -63,6 +63,7 @@ import {
   type CwManageConfig,
 } from "./mcp-server.js";
 import { verifyS2sHeader, S2S_HEADER } from "./s2s-verify.js";
+import { describeCredentialSetup } from "./guard/credentials.js";
 import {
   ANONYMOUS,
   identityFromEntra,
@@ -483,6 +484,8 @@ export async function startHttpTransport(): Promise<HttpServer> {
       console.error(
         `Authentication mode: ${isGatewayMode ? "gateway (header-based)" : "env (environment variables)"}`,
       );
+      // Secret-free credential summary (presence, lengths, yes/no hints; never a key) for diagnosing CW failures.
+      if (!isGatewayMode) console.error(`[cw-mcp] credentials: ${describeCredentialSetup()}`);
       resolve();
     });
   });
