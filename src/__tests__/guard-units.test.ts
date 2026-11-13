@@ -99,6 +99,8 @@ describe("policy", () => {
         "cw_update_contact",
         "cw_update_ticket",
         "cw_update_company",
+        "cw_create_opportunity",
+        "cw_update_opportunity",
         "cw_update_invoice",
       ]),
     );

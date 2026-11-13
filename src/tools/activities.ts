@@ -65,4 +65,28 @@ export function registerActivityTools(server: McpServer, client: CwManageClient)
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     },
   );
+
+  server.tool(
+    "cw_update_activity",
+    "Update an existing activity using JSON Patch operations (e.g. path 'notes', 'name', 'dateEnd', 'status/id', 'assignTo/id').",
+    {
+      id: z.number().describe("Activity ID"),
+      operations: z
+        .array(
+          z.object({
+            op: z.enum(["replace", "add", "remove"]).describe("Patch operation"),
+            path: z.string().describe("JSON path (e.g. 'notes', 'name', 'dateEnd')"),
+            value: z.unknown().optional().describe("New value (required for replace/add)"),
+          }),
+        )
+        .min(1)
+        .describe("Array of JSON Patch operations"),
+    },
+    async ({ id, operations }) => {
+      // PATCH /sales/activities/{id} with a PatchOperation list {op, path, value} confirmed from the CW
+      // Swagger (pasted by Nickolas, 2026-11-13). UNVERIFIED: which paths are patchable; CW returns an error naming a bad path.
+      const result = await client.patch(`/sales/activities/${id}`, operations);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    },
+  );
 }

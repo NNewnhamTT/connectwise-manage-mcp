@@ -236,6 +236,7 @@ needed.
 - `cw_search_activities` — Search activities
 - `cw_get_activity` — Get an activity by ID
 - `cw_create_activity` — Create a new activity
+- `cw_update_activity` — Update an activity (JSON Patch, `PATCH /sales/activities/{id}`)
 
 ### Agreements
 - `cw_search_agreements` — Search agreements
@@ -266,9 +267,14 @@ needed.
 ### Opportunities
 - `cw_search_opportunities` — Search opportunities
 - `cw_get_opportunity` — Get an opportunity by ID
+- `cw_create_opportunity` — Create an opportunity
+- `cw_update_opportunity` — Update an opportunity (JSON Patch)
 - `cw_search_opportunity_forecasts` — Search opportunity forecast lines
 - `cw_search_opportunity_notes` — Search notes on an opportunity
 - `cw_search_sales_stages` — List sales pipeline stages
+
+### Documents
+- `cw_upload_document` — Upload a file (base64, max 5 MB) to a ticket, company or activity (`POST /system/documents`; form fields per CW Swagger, `Activity` record type unverified)
 
 ### Catalog (Products)
 - `cw_search_catalog_items` — Search product catalog items

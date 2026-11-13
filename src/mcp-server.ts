@@ -37,6 +37,7 @@ import { registerProcurementTools } from "./tools/procurement.js";
 import { registerHealthTools } from "./tools/health.js";
 import { registerAgreementTools } from "./tools/agreements.js";
 import { registerOpportunityTools } from "./tools/opportunities.js";
+import { registerDocumentTools } from "./tools/documents.js";
 import { registerFinanceProcurementTools } from "./tools/finance-procurement.js";
 
 export type { CwManageConfig };
@@ -228,6 +229,7 @@ export function createMcpServer(
   registerHealthTools(server, client);
   registerAgreementTools(server, client);
   registerOpportunityTools(server, client);
+  registerDocumentTools(server, client);
   registerFinanceProcurementTools(server, client);
 
   return server;

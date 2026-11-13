@@ -6,6 +6,7 @@
  */
 
 import type { Analyzer } from "./mask-json.js";
+import { PRESIDIO_ID_ENTITIES } from "./id-rules.js";
 
 export interface PresidioOptions {
   /** Base URL of the analyzer, for example `http://presidio-analyzer:3000`. */
@@ -16,7 +17,8 @@ export interface PresidioOptions {
   fetchImpl?: typeof fetch;
 }
 
-export const DEFAULT_ENTITIES = ["PERSON", "EMAIL_ADDRESS", "PHONE_NUMBER", "IP_ADDRESS"];
+/** Person PII (tokenized) plus financial and government IDs (redacted, id-rules.ts). */
+export const DEFAULT_ENTITIES = ["PERSON", "EMAIL_ADDRESS", "PHONE_NUMBER", "IP_ADDRESS", ...PRESIDIO_ID_ENTITIES];
 
 interface RawSpan {
   entity_type: string;

@@ -16,6 +16,9 @@
 import { classify, isUrlKey } from "./field-rules.js";
 import { TOKEN_PATTERN, type EntityType, type Tokenizer } from "./tokenizer.js";
 import type { TokenStore } from "./store.js";
+import { PRESIDIO_ID_ENTITIES, REDACTED_ID, idSpans, isSensitiveIdKey } from "./id-rules.js";
+
+const PRESIDIO_ID_TYPES: ReadonlySet<string> = new Set(PRESIDIO_ID_ENTITIES);
 
 export const ANALYZER_UNAVAILABLE = "[REDACTED: PII analyzer unavailable]";
 
@@ -50,7 +53,8 @@ const PRESIDIO_TYPES: Record<string, EntityType> = {
 interface Span {
   start: number;
   end: number;
-  type: EntityType;
+  /** "SENSITIVE_ID" spans become REDACTED_ID (id-rules.ts), not a token. */
+  type: EntityType | "SENSITIVE_ID";
 }
 
 const PATTERNS: { type: EntityType; re: RegExp }[] = [
@@ -66,6 +70,8 @@ const PATTERNS: { type: EntityType; re: RegExp }[] = [
 
 function patternSpans(text: string): Span[] {
   const spans: Span[] = [];
+  // Sensitive IDs first: on overlap the earlier span wins (resolveOverlaps).
+  for (const s of idSpans(text)) spans.push({ ...s, type: "SENSITIVE_ID" });
   for (const { type, re } of PATTERNS) {
     for (const m of text.matchAll(re)) {
       spans.push({ start: m.index, end: m.index + m[0].length, type });
@@ -110,6 +116,19 @@ export async function maskJson(root: unknown, ctx: PiiContext): Promise<unknown>
     parent: Record<string, unknown> | undefined,
     assign: (v: unknown) => void,
   ): void => {
+    // A key that names a financial or government ID (ssn, taxId, cardNumber, ...)
+    // hides its whole value, whatever shape it has. Booleans and null carry none.
+    if (
+      key !== undefined &&
+      node !== null &&
+      node !== undefined &&
+      typeof node !== "boolean" &&
+      node !== "" &&
+      isSensitiveIdKey(key)
+    ) {
+      assign(REDACTED_ID);
+      return;
+    }
     if (typeof node === "string") {
       if (key === undefined) {
         // A bare string at the root or inside an array of strings: scan it.
@@ -200,15 +219,22 @@ export async function maskJson(root: unknown, ctx: PiiContext): Promise<unknown>
     const spans = [...p.spans];
     if (p.free && analyzed) {
       for (const s of analyzed[freeIndex++] ?? []) {
+        if (s.score < ctx.scoreThreshold) continue;
+        if (PRESIDIO_ID_TYPES.has(s.entityType)) {
+          spans.push({ start: s.start, end: s.end, type: "SENSITIVE_ID" });
+          continue;
+        }
         const type = PRESIDIO_TYPES[s.entityType];
-        if (type && s.score >= ctx.scoreThreshold) spans.push({ start: s.start, end: s.end, type });
+        if (type) spans.push({ start: s.start, end: s.end, type });
       }
     }
     const kept = resolveOverlaps(spans);
     let out = "";
     let cursor = 0;
     for (const s of kept) {
-      out += p.text.slice(cursor, s.start) + tokenFor(s.type, p.text.slice(s.start, s.end));
+      out +=
+        p.text.slice(cursor, s.start) +
+        (s.type === "SENSITIVE_ID" ? REDACTED_ID : tokenFor(s.type, p.text.slice(s.start, s.end)));
       cursor = s.end;
     }
     p.assign(out + p.text.slice(cursor));

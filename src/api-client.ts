@@ -167,6 +167,8 @@ export class CwManageClient {
     path: string,
     options?: {
       body?: unknown;
+      /** multipart/form-data body. Mutually exclusive with `body`. */
+      form?: FormData;
       params?: Record<string, string | number | undefined>;
     },
   ): Promise<T> {
@@ -217,7 +219,13 @@ export class CwManageClient {
       (fetchOptions as { dispatcher?: unknown }).dispatcher = this.dispatcher;
     }
 
-    if (options?.body !== undefined) {
+    if (options?.form !== undefined) {
+      // Let fetch set Content-Type with the multipart boundary.
+      const headers = { ...this.defaultHeaders() } as Record<string, string>;
+      delete headers["Content-Type"];
+      fetchOptions.headers = headers;
+      fetchOptions.body = options.form;
+    } else if (options?.body !== undefined) {
       fetchOptions.body = JSON.stringify(options.body);
     }
 
@@ -266,6 +274,11 @@ export class CwManageClient {
   /** POST helper */
   async post<T = unknown>(path: string, body: unknown): Promise<T> {
     return this.request<T>("POST", path, { body });
+  }
+
+  /** POST multipart/form-data helper (file uploads). */
+  async postForm<T = unknown>(path: string, form: FormData): Promise<T> {
+    return this.request<T>("POST", path, { form });
   }
 
   /** PATCH helper */
